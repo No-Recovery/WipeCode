@@ -171,9 +171,11 @@ static BOOL Vo1dekEraseViaSystemService(NSString **outError) {
     const long long options = 0;
     NSString *reason = @"WipeCode authenticated request";
 
-    id (*initWithMode)(id, SEL, long long, long long, id) =
-        (void (*)(id, SEL, long long, long long, id))objc_msgSend;
-    id request = initWithMode((id)requestCls, initSel, mode, options, reason);
+    // objc_msgSend is declared to return void, so the call has to go through a
+    // void * and be read back as the id the initialiser actually returns.
+    void *raw = ((void *(*)(id, SEL, long long, long long, id))objc_msgSend)(
+        (id)requestCls, initSel, mode, options, reason);
+    id request = (__bridge_transfer id)raw;
     if (request == nil) {
         *outError = @"initWithMode:options:reason: returned nil";
         return NO;
