@@ -55,18 +55,26 @@ jobs:
           # defaults to ./packages (THEOS_BUILD_DIR is ".") and is never created on a
           # clean checkout -> "No rule to make target 'packages'". Pin it to an
           # absolute path we create ourselves.
-          mkdir -p "$THEOS/packages"
+          #
+          # It must NOT live inside $THEOS: the cache step restores all of
+          # /home/runner/theos, so debs from a previous run would still be sitting
+          # in the package dir and every build would republish stale versions
+          # alongside the new one.
+          rm -rf "$RUNNER_TEMP/debs"
+          mkdir -p "$RUNNER_TEMP/debs"
           # Each subproject is a self-contained package with its own control file;
           # the root project has none, so `make package` there cannot work.
           for d in sb pref; do
-            make -C "$d" package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$THEOS/packages"
+            make -C "$d" package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$RUNNER_TEMP/debs"
           done
 
       - name: Collect debs
         run: |
           mkdir -p packages
-          find "$THEOS/packages" -maxdepth 1 -name '*.deb' -exec cp {} packages/ \;
+          find "$RUNNER_TEMP/debs" -maxdepth 1 -name '*.deb' -exec cp {} packages/ \;
           ls -la packages/
+          # Fail loudly rather than publishing an index with zero or duplicate packages.
+          test "$(ls packages/*.deb | wc -l)" -eq 2
 
       - name: Upload debs
         uses: actions/upload-artifact@v4
