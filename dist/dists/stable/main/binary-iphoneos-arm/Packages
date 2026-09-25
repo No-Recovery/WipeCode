@@ -1,6 +1,6 @@
 Package: com.vo1dek.wipecode-pref
 Name: WipeCode (Settings pane)
-Version: 1.2
+Version: 1.3
 Architecture: iphoneos-arm64
 Section: Tweaks
 Installed-Size: 292
@@ -8,26 +8,26 @@ Maintainer: dassd <dassd@localhost>
 Depends: mobilesubstrate, com.vo1dek.wipecode-sb
 Description: Adds the WipeCode pane to Settings. Prompts for the wipe password, derives its keyboard from the device passcode type published by the SpringBoard half, and sends the authenticated erase request. The erase call itself is still being verified against this iOS build; check probe.log before trusting it.
 Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-pref_1.2_iphoneos-arm64.deb
-MD5sum: 61212d15e93a419d587ffa207df964a1
-SHA1: eb8e02b95b70e9936b8a537bc8443cd487ee93ef
-SHA256: bd485c2164d12098ae0ebc2aad82a957c7eed936f5ec5aa26639d7cb1fdfb71d
-Size: 30634
+Filename: pool/main/w/wipecode/com.vo1dek.wipecode-pref_1.3_iphoneos-arm64.deb
+MD5sum: bfa7f70e7447ca759dd196e4dd74675c
+SHA1: b2044ccdd3749152fecf3ceb2a5209c52ea8f0f3
+SHA256: 78a7c440ab8f4d7b8330c84b9eca9b7ce3d11137a0f2672ef668a04379eade41
+Size: 34720
 Tag: role::hacker
 
 Package: com.vo1dek.wipecode-sb
 Name: WipeCode (SpringBoard half)
-Version: 1.2
+Version: 1.3
 Architecture: iphoneos-arm64
 Section: Tweaks
-Installed-Size: 236
+Installed-Size: 220
 Maintainer: dassd <dassd@localhost>
 Depends: mobilesubstrate
 Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks FBSSystemService to perform a data reset. Also publishes the device passcode type for the Settings pane.
 Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-sb_1.2_iphoneos-arm64.deb
-MD5sum: 849776badb03f12440721eb3f67c9a95
-SHA1: 9c44833ce6a1fc77d16ab30d9fc1479b7b1593bc
-SHA256: bb7adbc5afc62867d03f709f8b554522ad32a51aafded901aeba303c8b860254
-Size: 23340
+Filename: pool/main/w/wipecode/com.vo1dek.wipecode-sb_1.3_iphoneos-arm64.deb
+MD5sum: be581c316ce876091a448a1c74cdf056
+SHA1: 98c3f974b34ffe3ba26b126a6e2df8d354b2ee72
+SHA256: bcdfc551c8a7faa0a01dca49174629f3b2ce4f3d3f2956f6eb6b2d1031f48582
+Size: 20050
 Tag: role::hacker
