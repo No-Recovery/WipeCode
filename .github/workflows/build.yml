@@ -9,11 +9,13 @@ on:
 jobs:
   build:
     name: theos rootless build
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is migrating to Ubuntu 26, and the Theos installer
+    # still expects the older ncurses/toolchain layout.
+    runs-on: ubuntu-24.04
 
     env:
-      THEOS: /opt/theos
-      CACHE_VERSION: "1"
+      THEOS: /home/runner/theos
+      CACHE_VERSION: "2"
 
     steps:
       - uses: actions/checkout@v4
@@ -21,27 +23,30 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xz-utils git make zip
+          sudo apt-get install -y xz-utils build-essential fakeroot rsync curl perl zip git libxml2 libtinfo6
 
       # Bump CACHE_VERSION to force a fresh Theos checkout.
       - name: Restore Theos
         id: cache-theos
         uses: actions/cache@v4
         with:
-          path: /opt/theos
-          key: theos-v1-${{ runner.os }}-${{ env.CACHE_VERSION }}
-          restore-keys: theos-v1-${{ runner.os }}-
+          path: /home/runner/theos
+          key: theos-v2-${{ runner.os }}-${{ env.CACHE_VERSION }}
+          restore-keys: theos-v2-${{ runner.os }}-
 
+      # Theos dropped `make install`; bin/install-theos is the supported path.
+      # It refuses to run as root and skips its interactive prompts when $CI is set.
       - name: Install Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
+        env:
+          CI: "true"
         run: |
-          git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
-          cd "$THEOS"
-          sudo make install
+          export THEOS=/home/runner/theos
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
 
       - name: Build packages
         run: |
-          export THEOS=/opt/theos
+          export THEOS=/home/runner/theos
           export PATH="$THEOS/bin:$PATH"
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
