@@ -258,8 +258,13 @@ def build(out_dir, debs):
     )
 
     # The suite Release must account for the per-component files, named relative
-    # to dists/<suite>/.
-    comp_files = [f"{COMPONENT}/binary-{ARCH}/Release", f"{COMPONENT}/binary-{ARCH}/Packages"]
+    # to dists/<suite>/. All three are listed: apt looks for Release plus both
+    # Packages variants, and a missing entry makes it fall back badly.
+    comp_files = [
+        f"{COMPONENT}/binary-{ARCH}/Release",
+        f"{COMPONENT}/binary-{ARCH}/Packages",
+        f"{COMPONENT}/binary-{ARCH}/Packages.gz",
+    ]
     md5, sha256 = checksum_lines(os.path.join(out_dir, "dists", SUITE), comp_files)
     write_text(
         os.path.join(out_dir, "dists", SUITE, "Release"),
