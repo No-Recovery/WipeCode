@@ -23,6 +23,12 @@ SUITE = "stable"
 ORIGIN = "WipeCode"
 POOL = f"pool/{COMPONENT}/w/wipecode"
 
+# Clients disagree about which binary-<arch> they fetch. The packages really are
+# arm64 only, but an arm64 package list is also a valid answer for the generic
+# spellings, so mirroring the index across them costs nothing and removes a whole
+# class of "Packages returned status 404" that only shows up on a device.
+ARCH_DIRS = ["iphoneos-arm64", "iphoneos-arm", "all"]
+
 # Fields we regenerate ourselves; whatever the .deb control says is dropped.
 GENERATED = {"filename", "size", "md5sum", "sha1", "sha256"}
 
@@ -231,40 +237,43 @@ def build(out_dir, debs):
         ),
     )
 
-    # Conventional dists/ layout, which is what APT proper looks for.
-    binary = f"dists/{SUITE}/{COMPONENT}/binary-{ARCH}"
-    write_text(os.path.join(out_dir, binary, "Packages"), packages)
-    write_gz(os.path.join(out_dir, binary, "Packages.gz"), packages)
-    md5, sha256 = checksum_lines(out_dir, [f"{binary}/Packages", f"{binary}/Packages.gz"])
-    write_text(
-        os.path.join(out_dir, binary, "Release"),
-        "\n".join(
-            [
-                f"Origin: {ORIGIN}",
-                f"Label: {ORIGIN}",
-                f"Suite: {SUITE}",
-                f"Codename: {SUITE}",
-                f"Version: {suite_version}",
-                f"Architectures: {ARCH}",
-                f"Components: {COMPONENT}",
-                f"Date: {date}",
-                "MD5Sum:",
-                *md5,
-                "SHA256:",
-                *sha256,
-                "",
-            ]
-        ),
-    )
+    # Conventional dists/ layout, which is what APT proper looks for. The index is
+    # mirrored across every binary-<arch> spelling a client might ask for.
+    for arch_dir in ARCH_DIRS:
+        binary = f"dists/{SUITE}/{COMPONENT}/binary-{arch_dir}"
+        write_text(os.path.join(out_dir, binary, "Packages"), packages)
+        write_gz(os.path.join(out_dir, binary, "Packages.gz"), packages)
+        md5, sha256 = checksum_lines(
+            out_dir, [f"{binary}/Packages", f"{binary}/Packages.gz"]
+        )
+        write_text(
+            os.path.join(out_dir, binary, "Release"),
+            "\n".join(
+                [
+                    f"Origin: {ORIGIN}",
+                    f"Label: {ORIGIN}",
+                    f"Suite: {SUITE}",
+                    f"Codename: {SUITE}",
+                    f"Version: {suite_version}",
+                    f"Architectures: {arch_dir}",
+                    f"Components: {COMPONENT}",
+                    f"Date: {date}",
+                    "MD5Sum:",
+                    *md5,
+                    "SHA256:",
+                    *sha256,
+                    "",
+                ]
+            ),
+        )
 
     # The suite Release must account for the per-component files, named relative
     # to dists/<suite>/. All three are listed: apt looks for Release plus both
     # Packages variants, and a missing entry makes it fall back badly.
-    comp_files = [
-        f"{COMPONENT}/binary-{ARCH}/Release",
-        f"{COMPONENT}/binary-{ARCH}/Packages",
-        f"{COMPONENT}/binary-{ARCH}/Packages.gz",
-    ]
+    comp_files = []
+    for arch_dir in ARCH_DIRS:
+        binary = f"{COMPONENT}/binary-{arch_dir}"
+        comp_files += [f"{binary}/Release", f"{binary}/Packages", f"{binary}/Packages.gz"]
     md5, sha256 = checksum_lines(os.path.join(out_dir, "dists", SUITE), comp_files)
     write_text(
         os.path.join(out_dir, "dists", SUITE, "Release"),
