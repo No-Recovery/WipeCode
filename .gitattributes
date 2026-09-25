@@ -9,3 +9,10 @@ control    text eol=lf
 *.sh      text eol=lf
 *.yml     text eol=lf
 *.png     binary
+*.x       text eol=lf
+*.deb     binary
+# apt metadata must stay byte-exact: LF endings, no filtering.
+dist/Packages     text eol=lf
+dist/Release      text eol=lf
+dist/Packages.gz  binary
+dist/pool/**      binary

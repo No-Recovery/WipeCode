@@ -1,3 +1,5 @@
 packages/
 .theos/
 *.deb
+# The published apt repo must ship the actual packages.
+!dist/pool/**/*.deb

@@ -13,6 +13,9 @@ jobs:
     # still expects the older ncurses/toolchain layout.
     runs-on: ubuntu-24.04
 
+    permissions:
+      contents: write
+
     env:
       THEOS: /home/runner/theos
       CACHE_VERSION: "2"
@@ -71,3 +74,29 @@ jobs:
           name: wipecode-debs
           path: packages/*.deb
           if-no-files-found: error
+
+      # Publish the apt index that Sileo/Zebra consume. Skipped on pull requests
+      # and on forks, where the token has no write access.
+      - name: Publish apt repo
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          python3 tools/make-repo.py dist packages/*.deb
+          if [ -z "$(git status --porcelain dist)" ]; then
+            echo "dist/ already up to date"
+            exit 0
+          fi
+          git config user.name "wipecode-ci"
+          git config user.email "wipecode-ci@users.noreply.github.com"
+          git add dist
+          git commit -m "dist: publish apt index for $(ls packages/*.deb | wc -l) package(s)"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push origin main; then
+              echo "published"
+              exit 0
+            fi
+            echo "push attempt $attempt failed, retrying"
+            sleep 5
+          done
+          echo "could not push dist/ after 3 attempts" >&2
+          exit 1
