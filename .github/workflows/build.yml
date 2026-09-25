@@ -51,10 +51,13 @@ jobs:
           # Theos's `before-package` target depends on $(THEOS_PACKAGE_DIR), which
           # defaults to ./packages (THEOS_BUILD_DIR is ".") and is never created on a
           # clean checkout -> "No rule to make target 'packages'". Pin it to an
-          # absolute path we create ourselves; command-line variables are inherited
-          # by the recursive make invocations for the sb/ and pref/ subprojects.
+          # absolute path we create ourselves.
           mkdir -p "$THEOS/packages"
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$THEOS/packages"
+          # Each subproject is a self-contained package with its own control file;
+          # the root project has none, so `make package` there cannot work.
+          for d in sb pref; do
+            make -C "$d" package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$THEOS/packages"
+          done
 
       - name: Collect debs
         run: |
