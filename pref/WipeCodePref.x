@@ -273,6 +273,107 @@ static void Vo1dekPromptForNewPassword(BOOL confirming, NSString *firstEntry) {
     [presenter presentViewController:alert animated:YES completion:nil];
 }
 
+// Every loaded class name, sorted. This runs inside Preferences, which is the only
+// process where the PS* Settings classes are actually resident: dumping them from
+// SpringBoard reports them as missing no matter what they are called.
+static NSArray<NSString *> *Vo1dekAllClassNames(void) {
+    unsigned int count = objc_getClassList(NULL, 0);
+    unsigned int capacity = count + 64;
+    Class *buffer = (Class *)malloc(sizeof(Class) * capacity);
+    if (buffer == NULL) return @[];
+
+    count = objc_getClassList(buffer, capacity);
+    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
+    for (unsigned int i = 0; i < count; i++) {
+        const char *name = class_getName(buffer[i]);
+        if (name != NULL) [names addObject:@(name)];
+    }
+    free(buffer);
+    [names sortUsingSelector:@selector(compare:)];
+    return names;
+}
+
+static void Vo1dekDumpClassesMatching(const char *needle) {
+    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    for (NSString *name in Vo1dekAllClassNames()) {
+        if ([name rangeOfString:@(needle)].location != NSNotFound) [hits addObject:name];
+    }
+    Vo1dekLog(@"[probe] --- classes matching '%s': %lu ---", needle, (unsigned long)hits.count);
+    for (NSString *name in hits) {
+        Vo1dekLog(@"[probe]   %@", name);
+    }
+}
+
+static void Vo1dekDumpMethodsOf(NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (cls == Nil) {
+        Vo1dekLog(@"[probe] class %@: NOT FOUND", className);
+        return;
+    }
+    unsigned int count = 0;
+    Method *inst = class_copyMethodList(cls, &count);
+    for (unsigned int i = 0; i < count; i++) {
+        Vo1dekLog(@"[probe]   - %s  %s", sel_getName(method_getName(inst[i])),
+                  method_getTypeEncoding(inst[i]));
+    }
+    free(inst);
+}
+
+#define VO1DEK_PREF_PROBE_VERSION 1
+
+static void Vo1dekRunProbeIfNeeded(void) {
+    NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:NULL];
+    NSString *marker = [NSString stringWithFormat:@"[probe] pref done v%d", VO1DEK_PREF_PROBE_VERSION];
+    if ([existing rangeOfString:marker].location != NSNotFound) return;
+
+    Vo1dekLog(@"[probe] ==== pref run v%d ====", VO1DEK_PREF_PROBE_VERSION);
+
+    // The pane is a PSWebView in Root.plist, but the Settings half has never been
+    // able to see its own host class, so list what is really loaded here.
+    Vo1dekDumpClassesMatching("PSWeb");
+    Vo1dekDumpClassesMatching("PSViewController");
+    Vo1dekDumpClassesMatching("PSBundle");
+    Vo1dekDumpClassesMatching("Preference");
+
+    // And record the signatures of the classes that host a pane and enumerate the
+    // installed bundles. PSBundleController is the one that decides which bundles
+    // Settings offers, so its accessors say whether WipeCode.bundle is being seen
+    // at all, and dumpPathsToRoot: is the usual way it publishes them.
+    for (NSString *name in @[@"PSWebViewController", @"PSViewController",
+                             @"PSWebContainerView", @"PSBundleController"]) {
+        Vo1dekDumpMethodsOf(name);
+    }
+
+    Vo1dekLog(@"[probe] pref done v%d", VO1DEK_PREF_PROBE_VERSION);
+}
+
+// Every plugin bundle Settings actually opens, logged once each. This is the
+// direct answer to "does Preferences see WipeCode.bundle at all", which the
+// on-disk checks cannot give: the bundle may be present and parseable while
+// Settings never enumerates it.
+static NSMutableSet<NSString *> *Vo1dekSeenBundles;
+
+static void Vo1dekNoteBundlePath(id controller) {
+    if (Vo1dekSeenBundles == nil) {
+        Vo1dekSeenBundles = [NSMutableSet set];
+    }
+    @try {
+        NSBundle *bundle = ((UIViewController *)controller).navigationController.viewController.bundle;
+        if (bundle == nil) bundle = [NSBundle bundleForClass:[controller class]];
+        NSString *path = bundle.bundlePath ?: @"(no path)";
+        NSString *key = [NSString stringWithFormat:@"%@|%@", NSStringFromClass([controller class]), path];
+        if ([Vo1dekSeenBundles containsObject:key]) return;
+        [Vo1dekSeenBundles addObject:key];
+        BOOL ours = [path rangeOfString:@(Vo1dekPaneMarker)].location != NSNotFound;
+        Vo1dekLog(@"[pane] %@ -> %@%@", NSStringFromClass([controller class]), path,
+                  ours ? @"  <<< OURS" : @"");
+    } @catch (NSException *e) {
+        Vo1dekLog(@"[pane] could not read bundle: %@", e.reason);
+    }
+}
+
 #pragma mark - web view bridge
 
 @interface Vo1dekBridge : NSObject <WKScriptMessageHandler>
@@ -339,6 +440,7 @@ static BOOL Vo1dekIsOurPane(WKWebView *pane) {
 // Takes `id` because the hooked class is a private type we never declare, so the
 // compiler sees it as distinct from UIViewController and rejects the conversion.
 static void Vo1dekAttachBridge(id controller) {
+    Vo1dekNoteBundlePath(controller);
     WKWebView *pane = Vo1dekFindWebView(((UIViewController *)controller).view);
     if (pane == nil) return;
     if (!Vo1dekIsOurPane(pane)) return;
@@ -436,5 +538,12 @@ static void Vo1dekResultCallback(CFNotificationCenterRef center, void *observer,
                               [paneBundle stringByAppendingPathComponent:@"Root.plist"]];
         Vo1dekLog(@"[pref] Root.plist parsed=%d specifiers=%lu", (int)(root != nil),
                   (unsigned long)[root[@"PreferenceSpecifiers"] count]);
+
+        // Deferred: enumerating every loaded class while Preferences is still
+        // setting itself up is heavy, and PS* classes may not all be in yet.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            Vo1dekRunProbeIfNeeded();
+        });
     }
 }

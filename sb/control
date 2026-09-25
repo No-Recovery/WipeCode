@@ -1,6 +1,6 @@
 Package: com.vo1dek.wipecode-sb
 Name: WipeCode (SpringBoard half)
-Version: 1.2
+Version: 1.3
 Architecture: iphoneos-arm64
 Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks FBSSystemService to perform a data reset. Also publishes the device passcode type for the Settings pane.
 Depends: mobilesubstrate

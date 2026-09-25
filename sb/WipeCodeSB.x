@@ -103,110 +103,12 @@ static void Vo1dekPublishDeviceInfo(void) {
     Vo1dekWritePlist(plist, VO1DEK_DEVICE);
 }
 
-#pragma mark - probe
-
-// Every loaded class name, sorted. objc_getClassList is the public route here;
-// objc_copyClassNames is not declared in the iOS SDK.
-static NSArray<NSString *> *Vo1dekAllClassNames(void) {
-    unsigned int count = objc_getClassList(NULL, 0);
-    // The runtime can grow between the two calls, so ask for headroom and clamp
-    // to whatever actually came back.
-    unsigned int capacity = count + 64;
-    Class *buffer = (Class *)malloc(sizeof(Class) * capacity);
-    if (buffer == NULL) return @[];
-
-    count = objc_getClassList(buffer, capacity);
-    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
-    for (unsigned int i = 0; i < count; i++) {
-        const char *name = class_getName(buffer[i]);
-        if (name != NULL) [names addObject:@(name)];
-    }
-    free(buffer);
-
-    [names sortUsingSelector:@selector(compare:)];
-    return names;
-}
-
-static NSArray<NSString *> *Vo1dekClassesMatching(const char *needle) {
-    NSMutableArray<NSString *> *hits = [NSMutableArray array];
-    for (NSString *name in Vo1dekAllClassNames()) {
-        if ([name rangeOfString:@(needle)].location != NSNotFound) [hits addObject:name];
-    }
-    return hits;
-}
-
-// Names only: a cheap way to find out what a family is actually called on this
-// iOS build before committing to it.
-static void Vo1dekDumpClassesMatching(const char *needle) {
-    NSArray<NSString *> *hits = Vo1dekClassesMatching(needle);
-    Vo1dekLog(@"[probe] --- classes matching '%s': %lu ---", needle, (unsigned long)hits.count);
-    for (NSString *name in hits) {
-        Vo1dekLog(@"[probe]   %@", name);
-    }
-}
-
-// The exact argument keys accepted by the erase call cannot be read out of a
-// method list, so on first run we dump the real API surface of the classes and
-// helpers we rely on. Type encodings fully determine each signature, which is
-// enough to write the call correctly without guessing.
-static void Vo1dekDumpMethodsOf(const char *className) {
-    Class cls = objc_getClass(className);
-    if (cls == Nil) {
-        Vo1dekLog(@"[probe] class %s: NOT FOUND", className);
-        return;
-    }
-    Vo1dekLog(@"[probe] === %s @ %p ===", className, (__bridge void *)cls);
-
-    unsigned int count = 0;
-    Method *meta = class_copyMethodList(object_getClass(cls), &count);
-    for (unsigned int i = 0; i < count; i++) {
-        Vo1dekLog(@"[probe]   + %s  %s", sel_getName(method_getName(meta[i])),
-                  method_getTypeEncoding(meta[i]));
-    }
-    free(meta);
-
-    count = 0;
-    Method *inst = class_copyMethodList(cls, &count);
-    for (unsigned int i = 0; i < count; i++) {
-        Vo1dekLog(@"[probe]   - %s  %s", sel_getName(method_getName(inst[i])),
-                  method_getTypeEncoding(inst[i]));
-    }
-    free(inst);
-}
-
-// Bump this whenever the probe below changes. The completion marker carries the
-// version, so an upgraded build re-probes on its own instead of needing the user
-// to hand-delete probe.log first.
-#define VO1DEK_PROBE_VERSION 3
-
-static void Vo1dekRunProbeIfNeeded(void) {
-    // The log file already exists by the time we get here — the boot line above
-    // created it — so the completion marker is what decides, not the file.
-    NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:NULL];
-    NSString *marker = [NSString stringWithFormat:@"[probe] done v%d", VO1DEK_PROBE_VERSION];
-    if ([existing rangeOfString:marker].location != NSNotFound) return;
-
-    Vo1dekLog(@"[probe] ==== run v%d ====", VO1DEK_PROBE_VERSION);
-
-    // v2 answered the open question: there is no SBDeviceErase, and the real
-    // argument class for -dataResetWithRequest:completion: is FBSDataResetRequest.
-    // What is still unknown is how that request is meant to be built, so this
-    // round is narrow and only inspects the two classes involved.
-    Vo1dekDumpMethodsOf("FBSDataResetRequest");
-    Vo1dekDumpMethodsOf("FBSSystemService");
-
-    // The pane never showed up, so record the pane-hosting classes that do exist
-    // rather than assuming PSWebView is the one in use.
-    Vo1dekDumpClassesMatching("PSWeb");
-    Vo1dekDumpClassesMatching("PSBundle");
-    Vo1dekDumpClassesMatching("PreferenceBundles");
-    Vo1dekDumpClassesMatching("PSViewController");
-
-    Vo1dekLog(@"[probe] done v%d", VO1DEK_PROBE_VERSION);
-}
-
+// The SpringBoard-side probe is retired. v2 found that SBDeviceErase does not
+// exist and that FBSDataResetRequest is the real argument class; v3 produced its
+// designated initialiser, - initWithMode:options:reason:. Everything still
+// unknown belongs to the Settings pane, and those classes only exist inside the
+// Preferences process, so probing them from SpringBoard could only ever report
+// them as absent. The Settings half owns the probe now.
 
 #pragma mark - erasing
 
@@ -247,34 +149,48 @@ static BOOL Vo1dekEraseViaSystemService(NSString **outError) {
         return NO;
     }
 
+    SEL initSel = NSSelectorFromString(@"initWithMode:options:reason:");
+    if (![requestCls instancesRespondToSelector:initSel]) {
+        *outError = @"initWithMode:options:reason: not present";
+        return NO;
+    }
     SEL performSel = NSSelectorFromString(@"dataResetWithRequest:completion:");
     if (![service respondsToSelector:performSel]) {
         *outError = @"dataResetWithRequest:completion: not present";
         return NO;
     }
 
-    id request = [requestCls new];
+    // The probe gave the designated initialiser as
+    //   - initWithMode:options:reason:  @40@0:8q16q24@32
+    // so mode and options are both long long and reason is an NSString. What the
+    // individual values mean is not visible in a method list, so zero is used for
+    // both, which is the default "no extra flags" case, and the reason carries the
+    // provenance. If the service rejects it, the completion block reports why and
+    // the enum values can be read off a real Settings reset from a disassembly.
+    const long long mode = 0;
+    const long long options = 0;
+    NSString *reason = @"WipeCode authenticated request";
+
+    id (*initWithMode)(id, SEL, long long, long long, id) =
+        (void (*)(id, SEL, long long, long long, id))objc_msgSend;
+    id request = initWithMode((id)requestCls, initSel, mode, options, reason);
     if (request == nil) {
-        *outError = @"FBSDataResetRequest alloc/init returned nil";
+        *outError = @"initWithMode:options:reason: returned nil";
         return NO;
     }
 
-    // The probe could read method signatures but not the meaning of the argument
-    // keys, so record the properties the class actually declares. Whichever of
-    // them the service needs is then set from the same names in the next round.
-    NSArray<NSString *> *keys = @[@"eraseOption", @"EraseOption", @"passcode",
-                                  @"Passcode", @"wipeCode", @"shouldErase",
-                                  @"options", @"flags", @"eraseAllContentAndSettings"];
-    for (NSString *key in keys) {
-        SEL sel = NSSelectorFromString(key);
-        if (![request respondsToSelector:sel]) continue;
-        @try {
-            id current = [request valueForKey:key];
-            Vo1dekLog(@"[erase] request property %@ = %@", key, current);
-        } @catch (NSException *e) {
-            Vo1dekLog(@"[erase] request property %@ unreadable: %@", key, e.reason);
-        }
-    }
+    // Read the values back so the log shows what the class actually stored rather
+    // than what we passed in.
+    SEL optionsSel = NSSelectorFromString(@"options");
+    SEL modeSel = NSSelectorFromString(@"mode");
+    SEL reasonSel = NSSelectorFromString(@"reason");
+    Vo1dekLog(@"[erase] request built: mode=%lld options=%lld reason=%@",
+              [request respondsToSelector:modeSel]
+                  ? ((long long (*)(id, SEL))objc_msgSend)(request, modeSel) : -1,
+              [request respondsToSelector:optionsSel]
+                  ? ((long long (*)(id, SEL))objc_msgSend)(request, optionsSel) : -1,
+              [request respondsToSelector:reasonSel]
+                  ? ((id (*)(id, SEL))objc_msgSend)(request, reasonSel) : @"(unreadable)");
 
     Vo1dekLog(@"[erase] dispatching dataResetWithRequest: request=%@", request);
     void (*perform)(id, SEL, id, id) = (void (*)(id, SEL, id, id))objc_msgSend;
@@ -386,12 +302,11 @@ static void Vo1dekStart(void) {
     Vo1dekEnsureDir();
     Vo1dekLog(@"[boot] SpringBoard half loaded");
 
-    // Reading private SpringBoard state and spawning helper processes from inside
-    // the constructor runs while SpringBoard is still initialising, which is a good
-    // way to take it down. Let the boot sequence finish first.
+    // Reading private SpringBoard state from inside the constructor runs while
+    // SpringBoard is still initialising, which is a good way to take it down.
+    // Let the boot sequence finish first.
     dispatch_async(dispatch_get_main_queue(), ^{
         Vo1dekPublishDeviceInfo();
-        Vo1dekRunProbeIfNeeded();
     });
 
     // Registered synchronously so a request that arrives during startup is not lost.
