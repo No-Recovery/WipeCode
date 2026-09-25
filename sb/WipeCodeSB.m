@@ -12,6 +12,7 @@
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import "../common/WipeCodeCommon.h"
 
 #pragma mark - device passcode type
@@ -114,7 +115,7 @@ static void Vo1dekDumpMethodsOf(const char *className) {
         Vo1dekLog(@"[probe] class %s: NOT FOUND", className);
         return;
     }
-    Vo1dekLog(@"[probe] === %s @ %p ===", className, (void *)cls);
+    Vo1dekLog(@"[probe] === %s @ %p ===", className, (__bridge void *)cls);
 
     unsigned int count = 0;
     Method *meta = class_copyMethodList(object_getClass(cls), &count);

@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <CommonCrypto/CommonHMAC.h>
 #import <stdarg.h>
 #import <stdio.h>
 #import <stdlib.h>
