@@ -734,39 +734,45 @@ static UIImage *Vo1dekPaneIcon(void) {
         UIGraphicsImageRenderer *renderer =
             [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(29.0, 29.0)];
         icon = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-            (void)context;
             CGRect rect = CGRectMake(0.0, 0.0, 29.0, 29.0);
+            CGContextRef ctx = context.CGContext;
             UIBezierPath *tile = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0];
 
-            CGContextRef ctx = UIGraphicsGetCurrentContext();
             [[UIColor colorWithRed:0.62 green:0.09 blue:0.11 alpha:1.0] setFill];
             [tile fill];
 
             CGContextSaveGState(ctx);
             CGContextAddPath(ctx, tile.CGPath);
             CGContextClip(ctx);
-            CGContextDrawLinearGradient(ctx,
-                                        (CGGradientRef)[[UIColor colorWithRed:0.93 green:0.24 blue:0.24 alpha:1.0] CGColor],
-                                        (CGGradientRef)[[UIColor colorWithRed:0.74 green:0.11 blue:0.14 alpha:1.0] CGColor],
-                                        CGPointMake(0.0, 0.0),
-                                        CGPointMake(29.0, 29.0),
-                                        0);
+            CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+            CGFloat components[8] = {
+                0.93, 0.24, 0.24, 1.0,
+                0.74, 0.11, 0.14, 1.0
+            };
+            CGFloat locations[2] = {0.0, 1.0};
+            CGGradientRef gradient = CGGradientCreateWithColorComponents(space, components, locations, 2);
+            if (gradient != NULL) {
+                CGContextDrawLinearGradient(ctx, gradient,
+                                            CGPointMake(0.0, 0.0),
+                                            CGPointMake(29.0, 29.0),
+                                            (CGGradientDrawingOptions)0);
+                CGGradientRelease(gradient);
+            }
+            CGColorSpaceRelease(space);
             CGContextRestoreGState(ctx);
 
-            CGPoint centre = CGPointMake(14.5, 15.5);
+            CGFloat centreX = 14.5;
+            CGFloat centreY = 15.5;
             CGFloat radius = 6.2;
-            UIBezierPath *glyph = [UIBezierPath bezierPathWithArcWithCenter:centre
-                                                                  radius:radius
-                                                              startAngle:(CGFloat)(-M_PI_4)
-                                                                endAngle:(CGFloat)(M_PI * 1.25)
-                                                               clockwise:YES];
-            [glyph moveToPoint:CGPointMake(centre.x, centre.y - radius - 3.4)];
-            [glyph addLineToPoint:centre];
-
-            glyph.lineWidth = 2.0;
-            glyph.lineCapStyle = kCGLineCapRound;
-            [[UIColor whiteColor] setStroke];
-            [glyph stroke];
+            CGContextSetStrokeColorWithColor(ctx, [[UIColor whiteColor] CGColor]);
+            CGContextSetLineWidth(ctx, 2.0);
+            CGContextSetLineCap(ctx, kCGLineCapRound);
+            CGContextAddArc(ctx, centreX, centreY, radius,
+                            (CGFloat)(-M_PI_4), (CGFloat)(M_PI * 1.25), 0);
+            CGContextStrokePath(ctx);
+            CGContextMoveToPoint(ctx, centreX, centreY - radius - 3.4);
+            CGContextAddLineToPoint(ctx, centreX, centreY);
+            CGContextStrokePath(ctx);
         }];
     });
     return icon;
