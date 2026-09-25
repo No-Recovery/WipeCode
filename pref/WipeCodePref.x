@@ -328,8 +328,10 @@ static WKWebView *Vo1dekFindWebView(UIView *view) {
     return nil;
 }
 
-static void Vo1dekAttachBridge(UIViewController *controller) {
-    WKWebView *pane = Vo1dekFindWebView(controller.view);
+// Takes `id` because the hooked class is a private type we never declare, so the
+// compiler sees it as distinct from UIViewController and rejects the conversion.
+static void Vo1dekAttachBridge(id controller) {
+    WKWebView *pane = Vo1dekFindWebView(((UIViewController *)controller).view);
     if (pane == nil) return;
 
     Vo1dekPaneWebView = pane;
