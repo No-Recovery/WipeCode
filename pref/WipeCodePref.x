@@ -365,6 +365,8 @@ static void Vo1dekAttachBridge(UIViewController *controller) {
 
 %end
 
+%end
+
 #pragma mark - result notification
 
 static const void *Vo1dekPrefToken;
