@@ -1,3 +1,5 @@
+include $(THEOS)/makefiles/common.mk
+
 TWEAK_NAME = WipeCodeSB
 
 WipeCodeSB_FILES = WipeCodeSB.m
