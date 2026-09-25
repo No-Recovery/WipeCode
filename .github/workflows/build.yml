@@ -118,8 +118,10 @@ jobs:
             echo "dist/ already up to date"
           fi
 
-          # GitHub Pages is what Sileo actually reads:
-          #   https://no-recovery.github.io/WipeCode
+          # GitHub Pages is what Sileo actually reads, and the path is the
+          # repository name verbatim: https://no-recovery.github.io/wipecode
+          # The name is lowercase because Sileo lowercases whatever source URL
+          # it is given, and a Pages project site does not match case-insensitively.
           # raw.githubusercontent is not usable as the source. It kept serving a
           # superseded Packages long after the branch had moved on, offering the
           # old crashing build next to the fixed one, so we cannot trust it to
