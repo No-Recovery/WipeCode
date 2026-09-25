@@ -1,0 +1,10 @@
+Package: com.vo1dek.wipecode-sb
+Name: WipeCode (SpringBoard half)
+Version: 1.0
+Architecture: iphoneos-arm64
+Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks SBDeviceErase to perform Erase All Content and Settings. Also publishes the device passcode type for the Settings pane.
+Depends: mobilesubstrate
+Maintainer: dassd <dassd@localhost>
+Author: dassd
+Section: Tweaks
+Tag: role::hacker

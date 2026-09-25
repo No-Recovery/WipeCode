@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: theos rootless build
+    runs-on: ubuntu-latest
+
+    env:
+      THEOS: /opt/theos
+      CACHE_VERSION: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xz-utils git make zip
+
+      # Bump CACHE_VERSION to force a fresh Theos checkout.
+      - name: Restore Theos
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: /opt/theos
+          key: theos-v1-${{ runner.os }}-${{ env.CACHE_VERSION }}
+          restore-keys: theos-v1-${{ runner.os }}-
+
+      - name: Install Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          cd "$THEOS"
+          sudo make install
+
+      - name: Build packages
+        run: |
+          export THEOS=/opt/theos
+          export PATH="$THEOS/bin:$PATH"
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+
+      - name: Collect debs
+        run: |
+          mkdir -p packages
+          find "$THEOS/packages" -maxdepth 1 -name '*.deb' -exec cp {} packages/ \;
+          ls -la packages/
+
+      - name: Upload debs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wipecode-debs
+          path: packages/*.deb
+          if-no-files-found: error

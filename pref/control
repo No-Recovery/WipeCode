@@ -1,0 +1,10 @@
+Package: com.vo1dek.wipecode-pref
+Name: WipeCode (Settings pane)
+Version: 1.0
+Architecture: iphoneos-arm64
+Description: Adds the WipeCode pane to Settings. Prompts for the wipe password, derives its keyboard from the device passcode type published by the SpringBoard half, and sends the authenticated erase request.
+Depends: mobilesubstrate, com.vo1dek.wipecode-sb
+Maintainer: dassd <dassd@localhost>
+Author: dassd
+Section: Tweaks
+Tag: role::hacker

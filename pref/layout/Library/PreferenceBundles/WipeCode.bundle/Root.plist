@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PreferenceSpecifiers</key>
+	<array>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>ПАРОЛЬ СТИРАНИЯ</string>
+			<key>FooterText</key>
+			<string>Второй пароль, не связанный с код-паролем устройства. Хранится как HMAC-SHA256 со случайной солью — открытый пароль на диске не лежит.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSWebView</string>
+			<key>Title</key>
+			<string>WipeCode</string>
+			<key>WEB_URL</key>
+			<string>file:///var/jb/Library/PreferenceBundles/WipeCode.bundle/pane.html</string>
+			<key>AutomaticAdjustment</key>
+			<false/>
+		</dict>
+	</array>
+</dict>
+</plist>

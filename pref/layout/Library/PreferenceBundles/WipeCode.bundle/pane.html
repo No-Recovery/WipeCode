@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>WipeCode</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+    padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .card { background: #1c1c1e; border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px; min-height: 48px; font-size: 17px;
+  }
+  .row + .row { border-top: 0.5px solid #38383a; }
+  .row:active { background: #2c2c2e; }
+  .row .label { flex: 1; }
+  .row .chev { color: #48484a; font-size: 19px; }
+  .row.destructive .label { color: #ff453a; }
+  .row.blue .label { color: #0a84ff; }
+  .dot { width: 29px; height: 29px; border-radius: 7px; flex: 0 0 auto; display: grid; place-items: center; font-size: 15px; }
+  .status { background: #1c1c1e; border-radius: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.5; }
+  .status b { font-weight: 600; }
+  .status .k { color: #8e8e93; }
+  .status .v { color: #fff; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: rgba(48,209,88,.18); color: #30d158; }
+  .pill.off { background: rgba(255,69,58,.18); color: #ff453a; }
+  .note { color: #8e8e93; font-size: 13px; line-height: 1.5; margin: 10px 4px 0; }
+  .code { color: #8e8e93; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="status" id="statusBox">
+  <span class="k">Пароль стирания:</span> <span class="v" id="configured">—</span><br>
+  <span class="k">Код-пароль устройства:</span> <span class="v" id="ptype">—</span><br>
+  <span class="k">Формат ввода:</span> <span class="v" id="pformat">—</span>
+</div>
+
+<div class="card">
+  <div class="row" onclick="send('setPassword')">
+    <span class="dot" style="background:#0a84ff">🔑</span>
+    <span class="label">Задать пароль стирания</span>
+    <span class="chev">›</span>
+  </div>
+  <div class="row blue" onclick="send('wipe')">
+    <span class="dot" style="background:#ff453a">⌫</span>
+    <span class="label">Стереть устройство</span>
+    <span class="chev">›</span>
+  </div>
+  <div class="row destructive" onclick="send('clear')">
+    <span class="dot" style="background:#ff453a">✕</span>
+    <span class="label">Сбросить настройку</span>
+    <span class="chev">›</span>
+  </div>
+</div>
+
+<p class="note">
+  «Стереть устройство» запрашивает пароль нативным полем ввода и, если он совпал,
+  запускает <i>Стереть контент и настройки</i> через SpringBoard. Перед отправкой
+  даётся 5 секунд на отмену. Проверить работу без стирания нельзя — заранее
+  сохраните важное.
+</p>
+<p class="note">
+  Лог: <span class="code">/var/mobile/Library/WipeCode/probe.log</span>
+</p>
+
+<script>
+function send(action) {
+  try {
+    window.webkit.messageHandlers.vo1dek.postMessage({ action: action });
+  } catch (e) {
+    document.getElementById('configured').textContent = 'мост не подключён';
+  }
+}
+
+function describeFormat(s) {
+  if (s.type === 'none') return 'код-пароль не установлен';
+  var pad = s.numeric ? 'цифровая' : 'буквенно-цифровая';
+  if (s.max > 0) return pad + ', ровно ' + s.max + ' симв.';
+  return pad + ', от ' + s.min + ' симв.';
+}
+
+window.vo1dekStatus = function (s) {
+  document.getElementById('configured').innerHTML = s.configured
+    ? '<span class="pill ok">задан</span>'
+    : '<span class="pill off">не задан</span>';
+  document.getElementById('ptype').textContent = s.passcodeType;
+  document.getElementById('pformat').textContent = describeFormat(s);
+  if (s.ok === true) {
+    document.getElementById('ptype').innerHTML += ' <span class="pill ok">стёрто</span>';
+  } else if (s.ok === false && (s.error || s.method)) {
+    document.getElementById('ptype').innerHTML +=
+      ' <span class="pill off">' + (s.error || ('метод: ' + s.method)) + '</span>';
+  }
+};
+
+send('status');
+</script>
+</body>
+</html>
