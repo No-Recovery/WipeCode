@@ -1,22 +1,5 @@
 Package: com.vo1dek.wipecode-pref
 Name: WipeCode (Settings pane)
-Version: 1.0
-Architecture: iphoneos-arm64
-Section: Tweaks
-Installed-Size: 292
-Maintainer: dassd <dassd@localhost>
-Depends: mobilesubstrate, com.vo1dek.wipecode-sb
-Description: Adds the WipeCode pane to Settings. Prompts for the wipe password, derives its keyboard from the device passcode type published by the SpringBoard half, and sends the authenticated erase request.
-Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-pref_1.0_iphoneos-arm64.deb
-MD5sum: b4179266040cdacd6a2d1ce5083ef7c8
-SHA1: ef93ead19c4df66a97d32881983bcc45040b1c01
-SHA256: 6ac51efb3b4f51517c29092440407cd3ae7bf52f743390eb9d9d23e59fbb9a51
-Size: 28902
-Tag: role::hacker
-
-Package: com.vo1dek.wipecode-pref
-Name: WipeCode (Settings pane)
 Version: 1.1
 Architecture: iphoneos-arm64
 Section: Tweaks
@@ -26,27 +9,10 @@ Depends: mobilesubstrate, com.vo1dek.wipecode-sb
 Description: Adds the WipeCode pane to Settings. Prompts for the wipe password, derives its keyboard from the device passcode type published by the SpringBoard half, and sends the authenticated erase request.
 Author: dassd
 Filename: pool/main/w/wipecode/com.vo1dek.wipecode-pref_1.1_iphoneos-arm64.deb
-MD5sum: 7fc88c67d40a2db1b4625035f66eb59f
-SHA1: 2f11b9e44e44baf49bb05cbf44fadfd888c2df53
-SHA256: 3e8370a53c71c4a33908cf5adade3bdc9946a012b0588c078278410354c4d3de
-Size: 29146
-Tag: role::hacker
-
-Package: com.vo1dek.wipecode-sb
-Name: WipeCode (SpringBoard half)
-Version: 1.0
-Architecture: iphoneos-arm64
-Section: Tweaks
-Installed-Size: 220
-Maintainer: dassd <dassd@localhost>
-Depends: mobilesubstrate
-Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks SBDeviceErase to perform Erase All Content and Settings. Also publishes the device passcode type for the Settings pane.
-Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-sb_1.0_iphoneos-arm64.deb
-MD5sum: 166e7f1ff055105a9d45d80ef4204dea
-SHA1: 70ee36f4781174afec21d211118b78ffdac00486
-SHA256: 0575f11b4a64658c63bd929f7341b2dd046bbc4149039dd4b8c63b9ff594fa0a
-Size: 22656
+MD5sum: 2aaa0354bfbbb6b99520a6c8224f2096
+SHA1: 8c10bbc0df283243426149dc2b1fbf0f6db00341
+SHA256: 05ab6f30005becf0d54cabae201e69ed0c6758b5db4676613a6efd227ffadb09
+Size: 29198
 Tag: role::hacker
 
 Package: com.vo1dek.wipecode-sb
@@ -60,8 +26,8 @@ Depends: mobilesubstrate
 Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks SBDeviceErase to perform Erase All Content and Settings. Also publishes the device passcode type for the Settings pane.
 Author: dassd
 Filename: pool/main/w/wipecode/com.vo1dek.wipecode-sb_1.1_iphoneos-arm64.deb
-MD5sum: 8027366ebd8cb81f13804c8a078f438d
-SHA1: ef9cc3b91bd970dd53db9c96d200463374051d50
-SHA256: 84577ee4770f540416b5f498c8facec0491b84554e1346cf2d7cdd8094d0f819
-Size: 24486
+MD5sum: e979677c1411c70a53f35010df0e0ffb
+SHA1: 937394964cf754c8cf1fb248a6ae776f7cf0743d
+SHA256: 4f6dc1ac4c9add18c34115af93c45d4c0de1112d985a375fbc405b6ba037e8ca
+Size: 24462
 Tag: role::hacker
