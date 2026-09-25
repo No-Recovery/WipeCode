@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Overlapping runs would race on the dist commit and the gh-pages push.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: theos rootless build
@@ -90,21 +95,32 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/make-repo.py dist packages/*.deb
-          if [ -z "$(git status --porcelain dist)" ]; then
-            echo "dist/ already up to date"
-            exit 0
-          fi
           git config user.name "wipecode-ci"
           git config user.email "wipecode-ci@users.noreply.github.com"
-          git add dist
-          git commit -m "dist: publish apt index for $(ls packages/*.deb | wc -l) package(s)"
-          for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin main && git push origin main; then
-              echo "published"
-              exit 0
-            fi
-            echo "push attempt $attempt failed, retrying"
-            sleep 5
-          done
-          echo "could not push dist/ after 3 attempts" >&2
-          exit 1
+
+          if [ -n "$(git status --porcelain dist)" ]; then
+            git add dist
+            git commit -m "dist: publish apt index for $(ls packages/*.deb | wc -l) package(s)"
+            pushed=0
+            for attempt in 1 2 3; do
+              if git pull --rebase --autostash origin main && git push origin main; then
+                pushed=1
+                break
+              fi
+              echo "main push attempt $attempt failed, retrying"
+              sleep 5
+            done
+            [ "$pushed" -eq 1 ] || { echo "could not push dist/ after 3 attempts" >&2; exit 1; }
+          else
+            echo "dist/ already up to date"
+          fi
+
+          # GitHub Pages is what Sileo actually reads:
+          #   https://no-recovery.github.io/WipeCode
+          # raw.githubusercontent is not usable as the source. It kept serving a
+          # superseded Packages long after the branch had moved on, offering the
+          # old crashing build next to the fixed one, so we cannot trust it to
+          # reflect the current index.
+          SPLIT="$(git subtree split --prefix dist HEAD)"
+          git push --force origin "$SPLIT":gh-pages
+          echo "pages source: $SPLIT"
