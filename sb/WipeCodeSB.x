@@ -326,9 +326,15 @@ static void Vo1dekStart(void) {
     Vo1dekEnsureDir();
     Vo1dekLog(@"[boot] SpringBoard half loaded");
 
-    Vo1dekPublishDeviceInfo();
-    Vo1dekRunProbeIfNeeded();
+    // Reading private SpringBoard state and spawning helper processes from inside
+    // the constructor runs while SpringBoard is still initialising, which is a good
+    // way to take it down. Let the boot sequence finish first.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Vo1dekPublishDeviceInfo();
+        Vo1dekRunProbeIfNeeded();
+    });
 
+    // Registered synchronously so a request that arrives during startup is not lost.
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                     Vo1dekToken,
                                     Vo1dekDarwinCallback,

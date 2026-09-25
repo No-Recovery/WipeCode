@@ -107,8 +107,11 @@ static inline void Vo1dekLog(NSString *format, ...) {
     Vo1dekEnsureDir();
 
     // Truncate once past ~512 KB so an endless respring loop cannot fill the volume.
+    // attributesOfItemAtPath: returns a dictionary keyed by NSFileSize -- sending
+    // it `fileSize` was an unrecognised selector, which threw on the second call
+    // (once the file existed) and took SpringBoard down with it.
     NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:VO1DEK_PROBE error:NULL];
-    if ([attrs fileSize] > 512 * 1024) {
+    if ([attrs[NSFileSize] unsignedLongLongValue] > 512 * 1024) {
         [[NSFileManager defaultManager] removeItemAtPath:VO1DEK_PROBE error:NULL];
     }
 
