@@ -5,10 +5,10 @@ Codename: stable
 Version: 1.1
 Architectures: iphoneos-arm64
 Components: main
-Date: Fri, 25 Sep 2026 19:06:55 GMT
+Date: Fri, 25 Sep 2026 19:12:15 GMT
 MD5Sum:
- 2e3df07709f025b72a47726ee230004a 1435 Packages
- ea67b82c2968ca05c4a79f24688b5411 701 Packages.gz
+ 0cbed0685d2f432d7b94f288bbfa8525 1435 Packages
+ d398b9cf54530d3e67fd16d4d5e79d7d 702 Packages.gz
 SHA256:
- 0c4c9537a103219706b1b04f3cc9e8f5e0ecd15827b7ac099712bcc8a168cc39 1435 Packages
- 1287eba40d48197b2eaa10ba4876595be9b664a408fa3238fc35bf674e1abe84 701 Packages.gz
+ 15afe4608f8fc066df967abe218b73a89b4aa865208086bf6ab4653fa72e809c 1435 Packages
+ 47b528944aedae10b2ed0ec69715000a0b2ea8ef41c612850a026ad09b93dd29 702 Packages.gz
