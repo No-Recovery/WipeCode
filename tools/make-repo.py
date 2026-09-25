@@ -14,7 +14,6 @@ import io
 import lzma
 import os
 import shutil
-import subprocess
 import sys
 import tarfile
 
@@ -187,63 +186,7 @@ irreversible. Test on a device with nothing on it.</p>
 """
 
 
-def export_public_key(out_dir, fingerprint, gpg_home):
-    """Publish the armored public key next to the index.
-
-    Sileo can only trust the source once it holds this key, and the only way for
-    the user to get it is over HTTP from the source itself.
-    """
-    gpg = shutil.which("gpg")
-    if gpg is None:
-        raise SystemExit("gpg not found; cannot export the public key")
-    armored = subprocess.run(
-        [gpg, "--homedir", gpg_home, "--batch", "--armor", "--export", fingerprint],
-        check=True, capture_output=True,
-    ).stdout
-    if b"BEGIN PGP PUBLIC KEY BLOCK" not in armored:
-        raise SystemExit("exported key is not a public key block")
-    path = os.path.join(out_dir, "WipeCode-index-signing-key.asc")
-    with open(path, "wb") as fh:
-        fh.write(armored)
-    return path
-
-
-def sign_release(release_path, fingerprint, gpg_home, passphrase):
-    """Write the clearsigned InRelease and the detached Release.gpg beside it.
-
-    Sileo validates the signature on a source and rejects an unsigned one with a
-    misleading "Packages returned status 404", so these are not optional.
-    """
-    # dists/<suite>/Release has no extension to split on, so build the sibling
-    # names from the directory instead of from splitext().
-    here = os.path.dirname(release_path)
-    inrelease = os.path.join(here, "InRelease")
-    detached = os.path.join(here, "Release.gpg")
-
-    # which() rather than a bare "gpg": CreateProcess does not apply PATHEXT, so
-    # on Windows the extensionless name is not found.
-    gpg = shutil.which("gpg")
-    if gpg is None:
-        raise SystemExit("gpg not found; cannot sign the index")
-
-    common = [gpg, "--homedir", gpg_home, "--batch", "--yes", "--pinentry-mode", "loopback"]
-    if passphrase:
-        common += ["--passphrase", passphrase]
-
-    subprocess.run(
-        common + ["--armor", "--detach-sign", "--local-user", fingerprint,
-                  "--output", detached, release_path],
-        check=True,
-    )
-    subprocess.run(
-        common + ["--clearsign", "--local-user", fingerprint,
-                  "--output", inrelease, release_path],
-        check=True,
-    )
-    return inrelease, detached
-
-
-def build(out_dir, debs, fingerprint=None, gpg_home=None, passphrase=None):
+def build(out_dir, debs):
     pool_dir = os.path.join(out_dir, *POOL.split("/"))
     if os.path.isdir(out_dir):
         shutil.rmtree(out_dir)
@@ -360,16 +303,6 @@ def build(out_dir, debs, fingerprint=None, gpg_home=None, passphrase=None):
         INDEX_HTML.format(base="https://no-recovery.github.io/WipeCode"),
     )
 
-    if fingerprint:
-        export_public_key(out_dir, fingerprint, gpg_home)
-        # The suite Release is what apt verifies, so that is the one signed.
-        sign_release(
-            os.path.join(out_dir, "dists", SUITE, "Release"),
-            fingerprint,
-            gpg_home,
-            passphrase,
-        )
-
     return len(debs)
 
 
@@ -377,25 +310,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("out", help="output directory (the apt repo root)")
     ap.add_argument("debs", nargs="+", help="input .deb files")
-    ap.add_argument("--sign-key", help="fingerprint of the index signing key")
-    ap.add_argument("--gpg-home", help="GnuPG home holding the signing key")
-    ap.add_argument("--gpg-passphrase", default="", help="passphrase for that key")
     args = ap.parse_args()
 
     missing = [d for d in args.debs if not os.path.isfile(d)]
     if missing:
         sys.exit("missing: " + ", ".join(missing))
 
-    if args.sign_key and not args.gpg_home:
-        sys.exit("--sign-key also needs --gpg-home")
-
-    count = build(
-        args.out,
-        args.debs,
-        fingerprint=args.sign_key,
-        gpg_home=args.gpg_home,
-        passphrase=args.gpg_passphrase,
-    )
+    count = build(args.out, args.debs)
     print(f"wrote apt repo with {count} package(s) to {args.out}")
 
 

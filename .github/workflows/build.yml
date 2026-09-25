@@ -88,37 +88,16 @@ jobs:
           path: packages/*.deb
           if-no-files-found: error
 
-      # Sileo verifies source signatures and rejects an unsigned index with a
-      # misleading "Packages returned status 404", so the signing key comes from a
-      # secret and never appears in this repository.
-      - name: Import index signing key
-        id: gpg
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          KEY: ${{ secrets.WIPECODE_INDEX_GPG_KEY }}
-        run: |
-          set -euo pipefail
-          export GNUPGHOME="$RUNNER_TEMP/gnupg"
-          mkdir -p "$GNUPGHOME"
-          chmod 700 "$GNUPGHOME"
-          printf '%s' "$KEY" | gpg --batch --import
-          gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}' > "$RUNNER_TEMP/fpr"
-          echo "fingerprint=$(cat "$RUNNER_TEMP/fpr")" >> "$GITHUB_OUTPUT"
-
       # Publish the apt index that Sileo/Zebra consume. Skipped on pull requests
       # and on forks, where the token has no write access.
+      #
+      # The index is deliberately left unsigned. Sileo reads it fine that way, and
+      # a signing key in a public repository is a liability for no benefit.
       - name: Publish apt repo
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GNUPGHOME: ${{ runner.temp }}/gnupg
-          # A secret, not a literal: this repository is public.
-          PASSPHRASE: ${{ secrets.WIPECODE_INDEX_GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          python3 tools/make-repo.py dist packages/*.deb \
-            --sign-key "${{ steps.gpg.outputs.fingerprint }}" \
-            --gpg-home "$GNUPGHOME" \
-            --gpg-passphrase "$PASSPHRASE"
+          python3 tools/make-repo.py dist packages/*.deb
           git config user.name "wipecode-ci"
           git config user.email "wipecode-ci@users.noreply.github.com"
 
