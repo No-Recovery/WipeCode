@@ -5,12 +5,24 @@ Codename: stable
 Version: 1.1
 Architectures: iphoneos-arm64
 Components: main
-Date: Fri, 25 Sep 2026 19:20:27 GMT
+Date: Fri, 25 Sep 2026 19:26:36 GMT
 MD5Sum:
- 6c617eab9f253612557134b5094bb7c5 596 main/binary-iphoneos-arm64/Release
- a501d027104a4ebee19105bf0aa73d86 1435 main/binary-iphoneos-arm64/Packages
- a0da56b3301a6c0c1bcbcf11df53e802 704 main/binary-iphoneos-arm64/Packages.gz
+ e709af9aa63d76b7d3504b8cb0b5d680 596 main/binary-iphoneos-arm64/Release
+ 9f35ba3ec6ec3301ce43f42a569f54e2 1435 main/binary-iphoneos-arm64/Packages
+ 2765b64313663b6e98b2dd0ea134db40 703 main/binary-iphoneos-arm64/Packages.gz
+ c2f01f65bc8bfc88014380b9341c9f0d 586 main/binary-iphoneos-arm/Release
+ 9f35ba3ec6ec3301ce43f42a569f54e2 1435 main/binary-iphoneos-arm/Packages
+ 2765b64313663b6e98b2dd0ea134db40 703 main/binary-iphoneos-arm/Packages.gz
+ d8119ac2d44f6b15613338e8ac8afee2 541 main/binary-all/Release
+ 9f35ba3ec6ec3301ce43f42a569f54e2 1435 main/binary-all/Packages
+ 2765b64313663b6e98b2dd0ea134db40 703 main/binary-all/Packages.gz
 SHA256:
- 58ffa1cfe087ed084a1604f324593d5e8af8afd6a20779029c4450aef11e4ed5 596 main/binary-iphoneos-arm64/Release
- 3fd893a285941159b11f78915bfa6bc80bb63fbb22b29b9ce2be470223a63b68 1435 main/binary-iphoneos-arm64/Packages
- 779a9ae7283fcabcc5985392a47d97e76c4fbeaa4ee471638947b87e4a97148c 704 main/binary-iphoneos-arm64/Packages.gz
+ c439da6f7c16688e404b0a26f96a58f21e38819f87d0509d8d5dbcc762066391 596 main/binary-iphoneos-arm64/Release
+ a5fabfd247952f16b8708973840574b466d43698f6d69e1762b4462542b523de 1435 main/binary-iphoneos-arm64/Packages
+ e5298ca015b5ed97e0761d58a1a974b3cf479b7fa5c13cfdc2f9f8a49a52503c 703 main/binary-iphoneos-arm64/Packages.gz
+ 6d909cfe9c92e0df9afde299b77642edb7e0c915af78735352872996826747ec 586 main/binary-iphoneos-arm/Release
+ a5fabfd247952f16b8708973840574b466d43698f6d69e1762b4462542b523de 1435 main/binary-iphoneos-arm/Packages
+ e5298ca015b5ed97e0761d58a1a974b3cf479b7fa5c13cfdc2f9f8a49a52503c 703 main/binary-iphoneos-arm/Packages.gz
+ a8f65858af8a724262fc0a89184b1b908d3a3c386ac7bbf32c684aadb4d02950 541 main/binary-all/Release
+ a5fabfd247952f16b8708973840574b466d43698f6d69e1762b4462542b523de 1435 main/binary-all/Packages
+ e5298ca015b5ed97e0761d58a1a974b3cf479b7fa5c13cfdc2f9f8a49a52503c 703 main/binary-all/Packages.gz
