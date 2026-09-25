@@ -4,6 +4,24 @@ Rootless-твик (Dopamine, iOS 15–16.6.1). Добавляет в «Наст�
 **второй пароль стирания**, не связанный с код-паролем устройства. Если ввести именно его —
 выполняется системная «Стереть контент и настройки».
 
+> **Состояние: стирание на устройстве ещё не подтверждено.** Компиляция, упаковка,
+> загрузка обеих половин и доставка через источник пакетов проверены. Конкретный вызов
+> сброса данных дописывается по результатам probe — см. «Диагностика».
+
+## Установка
+
+Источник для Sileo / Zebra:
+
+```
+https://no-recovery.github.io/WipeCode
+```
+
+Ставятся два пакета, `com.vo1dek.wipecode-sb` — **первым** (второй от него зависит).
+
+Почему не `raw.githubusercontent.com`: он долго отдавал устаревший `Packages` уже после
+того, как ветка уехала вперёд, и в списке оказывались и старая падающая сборка, и новая.
+Индекс публикуется через GitHub Pages, он всегда соответствует текущему коммиту.
+
 ## Устройство
 
 Две половины, потому что `Settings.app` не может стирать напрямую:
@@ -11,7 +29,7 @@ Rootless-твик (Dopamine, iOS 15–16.6.1). Добавляет в «Наст�
 | | процесс | роль |
 |---|---|---|
 | `WipeCodePref` | `com.apple.Preferences` | панель, ввод пароля, HMAC, отправка запроса |
-| `WipeCodeSB`   | `com.apple.springboard`  | сверка HMAC, вызов `SBDeviceErase` |
+| `WipeCodeSB`   | `com.apple.springboard`  | сверка HMAC, вызов сброса данных |
 
 `FBSSystemService` требует entitlement `com.apple.springboard`, который есть только у
 процесса SpringBoard. Связь между половинами — Darwin notification (payload не несёт) +
@@ -21,16 +39,20 @@ Darwin notification может отправить любой процесс, п�
 уведомления, а HMAC-SHA256 от введённого пароля с персистентной случайной солью.
 **Открытый пароль не попадает ни на диск, ни в уведомление** — только 64-символьный дайджест.
 
-## Сборка
+## Вызов стирания
 
-```sh
-export THEOS=/opt/theos
-cd WipeCode
-make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+`SBDeviceErase` на iOS 15/16 **не существует** — это подтверждено на устройстве. Реальный
+путь найден пробой:
+
+```
+FBSSystemService  -dataResetWithRequest:completion:   v32@0:8@16@?24
+FBSSystemService  +sharedService                      @16@0:8
+FBSSystemService  -createClientPort                    I16@0:8
 ```
 
-Схема `rootless` задана в корневом `Makefile`. Получится два `.deb` — `sb` ставить первым
-(от него зависит второй).
+`-createClientPort` возвращает `NSInteger` (mach-порт), а `-dataResetWithRequest:` ждёт
+объект. Имя класса этого объекта менялось между выпусками, поэтому оно не захардкожено:
+probe перечисляет все загруженные классы и находит семейство `FBSSystemService*`.
 
 ## Что происходит при нажатии «Стереть устройство»
 
@@ -40,7 +62,36 @@ make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
    счётчик не дошёл до нуля.
 3. В `request.plist` пишется дайджест, отправляется Darwin notification.
 4. SpringBoard сверяет дайджест, удаляет `request.plist` (запрос не переигрывается) и
-   вызывает `SBDeviceErase`.
+   вызывает сброс данных.
+
+## Сборка
+
+Корень не является пакетом (у него нет `control`), поэтому собираются subproject'ы по
+отдельности. Каждый самодостаточен: свой `control`, свой фильтр в корне.
+
+```sh
+export THEOS=/opt/theos
+mkdir -p "$THEOS/packages"
+for d in sb pref; do
+  make -C "$d" package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless \
+    THEOS_PACKAGE_DIR="$THEOS/packages"
+done
+```
+
+`THEOS_PACKAGE_DIR` обязан быть абсолютным и существовать: `before-package` в Theos
+падает с `No rule to make target 'packages'`, если каталога нет. Держать его внутри
+`$THEOS` не стоит — кэш CI восстанавливает весь каталог Theos вместе со старыми `.deb`.
+
+Исходники намеренно называются `*.x`, а не `*.m`: Theos прогоняет Logos только по `.x`,
+и при расширении `.m` хуки молча не генерируются.
+
+Индекс apt-репозитория собирается отдельно:
+
+```sh
+python3 tools/make-repo.py dist packages/*.deb
+```
+
+`dist/` коммитится в `main`, а его содержимое публикуется в ветку `gh-pages` силами CI.
 
 ## Диагностика
 
@@ -50,32 +101,30 @@ make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 /var/mobile/Library/WipeCode/probe.log
 ```
 
-При первом запуске SpringBoard-половина сбрасывает туда реальные сигнатуры
-`SBDeviceErase`, `FBSSystemService`, `FBSSystemServiceRequest`, `SBAuthenticationManager`
-и вывод `fdesetup -h`. Это нужно, чтобы закрепить точный вызов стирания: имена ключей
-в `arguments` не читаются из списка методов, а подтвердить их офлайн не удалось.
+Probe перечисляет загруженные классы (`objc_getClassList`) по подстрокам `FBSSystemService`,
+`DeviceErase`, `DataReset`, `Erase`, `Passcode`, `SBAuth`, `SBLockScreen`, `PSWeb`,
+`Authenticate`, а для семейств `FBSSystemService*` и `PSWeb*` выписывает все сигнатуры
+методов. Это надёжнее угадывания имён: на iOS 15/16 `SBDeviceErase` и
+`SBAuthenticationManager` отсутствуют, а `PSWebViewController` не загружен к моменту
+конструктора dylib'а.
 
-Забрать лог:
+Запуск защищён маркером с номером версии (`[probe] done v2`), поэтому после обновления
+probe перезапускается сам — вручную удалять лог не нужно. Чтобы прогнать заново на
+текущей сборке, достаточно удалить `probe.log`.
 
-```sh
-ssh -p 2222 mobile@localhost 'cat /var/mobile/Library/WipeCode/probe.log'
-```
+Забрать лог: Filza → `/var/mobile/Library/WipeCode/probe.log`.
 
-## Запасной путь (root)
+## Известные ограничения
 
-Если `SBDeviceErase` на этой версии iOS недоступен из SpringBoard, есть путь через
-`fdesetup` от root. Он **выключен по умолчанию** и включается двумя шагами:
-
-```sh
-# 1. разово разрешить sudo без пароля только для fdesetup
-echo 'mobile ALL=(root) NOPASSWD: /usr/bin/fdesetup' \
-  > /var/jb/etc/sudoers.d/vo1dek
-chmod 440 /var/jb/etc/sudoers.d/vo1dek
-
-# 2. вписать реальные аргументы (взять из probe.log, раздел fdesetup -h)
-plutil -insert rootEraseArgs -json '["erase", ...]' \
-  /var/mobile/Library/WipeCode/secret.plist
-```
+- **Тип код-пароля не определяется.** `SBAuthenticationManager` на iOS 15/16 нет, панель
+  получает `unknown` и показывает обычную клавиатуру. Класс-кандидат ищет probe.
+- **Запасной путь через `fdesetup` не работает.** На устройстве `/usr/bin/fdesetup` не
+  доступен из SpringBoard, а `sudo -n` требует пароль (`требуется указать пароль`,
+  код 256). Код оставлен, но выключен; включать его не имеет смысла без sudoers.
+- **Хук панели навешен на `UIViewController`,** а не на приватный класс: тот загружается
+  лениво и на момент конструктора ещё отсутствовал, из-за чего панель оставалась без
+  моста. Хук ограничен проверкой URL — обработчик получает только webview из
+  `WipeCode.bundle`.
 
 ## Предупреждение
 
