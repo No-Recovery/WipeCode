@@ -68,8 +68,11 @@ jobs:
           rm -rf "$RUNNER_TEMP/debs"
           mkdir -p "$RUNNER_TEMP/debs"
           # Each subproject is a self-contained package with its own control file;
-          # the root project has none, so `make package` there cannot work.
-          for d in sb pref; do
+          # the root project has none, so `make package` there cannot work. There is
+          # only one: the tweak is a single dylib injected into both SpringBoard
+          # and Settings, so there is nothing to install in order and no version
+          # dependency between halves.
+          for d in wipecode; do
             make -C "$d" package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$RUNNER_TEMP/debs"
           done
 
@@ -79,7 +82,7 @@ jobs:
           find "$RUNNER_TEMP/debs" -maxdepth 1 -name '*.deb' -exec cp {} packages/ \;
           ls -la packages/
           # Fail loudly rather than publishing an index with zero or duplicate packages.
-          test "$(ls packages/*.deb | wc -l)" -eq 2
+          test "$(ls packages/*.deb | wc -l)" -eq 1
 
       - name: Upload debs
         uses: actions/upload-artifact@v4

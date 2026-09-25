@@ -2,11 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- One dylib, two processes. Which half runs is decided at load time from
+	     the bundle identifier, so this stays a single tweak rather than a pair
+	     of packages that have to be installed in the right order. -->
 	<key>Filter</key>
 	<dict>
 		<key>Bundles</key>
 		<array>
 			<string>com.apple.springboard</string>
+			<string>com.apple.Preferences</string>
 		</array>
 	</dict>
 </dict>
