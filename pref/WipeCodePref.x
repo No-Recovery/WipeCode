@@ -360,13 +360,15 @@ static void Vo1dekNoteBundlePath(id controller) {
         Vo1dekSeenBundles = [NSMutableSet set];
     }
     @try {
-        NSBundle *bundle = nil;
+        // The plugin bundle is found from the controller's own class, which is
+        // how a loaded .bundle is identified: bundleForClass: walks back to the
+        // bundle image the class was loaded from.
         UIViewController *vc = (UIViewController *)controller;
         if ([vc isKindOfClass:[UINavigationController class]]) {
             vc = ((UINavigationController *)vc).viewControllers.firstObject;
         }
-        if (vc != nil) bundle = vc.bundle;
-        if (bundle == nil) bundle = [NSBundle bundleForClass:[controller class]];
+        Class host = vc != nil ? [vc class] : [controller class];
+        NSBundle *bundle = [NSBundle bundleForClass:host];
         NSString *path = bundle.bundlePath ?: @"(no path)";
         NSString *key = [NSString stringWithFormat:@"%@|%@", NSStringFromClass([controller class]), path];
         if ([Vo1dekSeenBundles containsObject:key]) return;
