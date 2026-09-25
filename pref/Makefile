@@ -2,7 +2,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = WipeCodePref
 
-WipeCodePref_LOGOS_FILES = WipeCodePref.m
+WipeCodePref_LOGOS_FILES = WipeCodePref.x
 WipeCodePref_CFLAGS = -fobjc-arc -I../common
 WipeCodePref_FRAMEWORKS = Foundation CoreFoundation UIKit WebKit
 
