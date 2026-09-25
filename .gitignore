@@ -1,5 +1,7 @@
 packages/
 .theos/
 *.deb
-# The published apt repo must ship the actual packages.
-!dist/pool/**/*.deb
+# The published apt repo must ship the actual packages, including the copy under
+# the lowercase alias, which is why this matches any dist/pool at any depth
+# rather than only dist/pool itself.
+!dist/**/pool/**/*.deb

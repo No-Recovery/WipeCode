@@ -11,7 +11,9 @@ control    text eol=lf
 *.png     binary
 *.x       text eol=lf
 *.deb     binary
-# apt metadata must stay byte-exact: LF endings, no filtering.
+# apt metadata must stay byte-exact: LF endings, no filtering. These come after
+# `*.deb binary` on purpose: a later rule wins, and `dist/**` would otherwise
+# re-mark nested packages as text and rewrite their bytes.
 dist/**            text eol=lf
 dist/**/*.gz       binary
-dist/pool/**       binary
+dist/**/pool/**    binary
