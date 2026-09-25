@@ -1,33 +1,18 @@
-Package: com.vo1dek.wipecode-pref
-Name: WipeCode (Settings pane)
-Version: 1.3
+Package: com.vo1dek.wipecode
+Name: WipeCode
+Version: 2.0
 Architecture: iphoneos-arm64
 Section: Tweaks
-Installed-Size: 292
-Maintainer: dassd <dassd@localhost>
-Depends: mobilesubstrate, com.vo1dek.wipecode-sb
-Description: Adds the WipeCode pane to Settings. Prompts for the wipe password, derives its keyboard from the device passcode type published by the SpringBoard half, and sends the authenticated erase request. The erase call itself is still being verified against this iOS build; check probe.log before trusting it.
-Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-pref_1.3_iphoneos-arm64.deb
-MD5sum: 57c3872f139c3558a321d003bb78a3fc
-SHA1: e0723c6b0f89dc29fc361b8f4d099ba00644c0ae
-SHA256: eb12bd7382ec3bd11fd2788a7a083c394c32fbf0ec12d3bf652ec37128a45c22
-Size: 34656
-Tag: role::hacker
-
-Package: com.vo1dek.wipecode-sb
-Name: WipeCode (SpringBoard half)
-Version: 1.3
-Architecture: iphoneos-arm64
-Section: Tweaks
-Installed-Size: 220
+Installed-Size: 332
 Maintainer: dassd <dassd@localhost>
 Depends: mobilesubstrate
-Description: Runs inside SpringBoard. Catches the authenticated wipe request, verifies its HMAC, and asks FBSSystemService to perform a data reset. Also publishes the device passcode type for the Settings pane.
+Conflicts: com.vo1dek.wipecode-sb, com.vo1dek.wipecode-pref
+Replaces: com.vo1dek.wipecode-sb, com.vo1dek.wipecode-pref
+Description: Adds a WipeCode pane to Settings, where a second wipe password is set, and performs an authenticated "Erase All Content and Settings" through SpringBoard. The Settings pane and the SpringBoard half are one dylib injected into both processes.
 Author: dassd
-Filename: pool/main/w/wipecode/com.vo1dek.wipecode-sb_1.3_iphoneos-arm64.deb
-MD5sum: 0ff31a525cff90358a18ef18cf86aa3e
-SHA1: c1e1a1bd285dc7f731e2d9263105cc1108bee77f
-SHA256: 1479f1efcd4151a9a1b3bff729215cb5fa532f2bc3cf2660f9cec8cd993a2052
-Size: 20044
+Filename: pool/main/w/wipecode/com.vo1dek.wipecode_2.0_iphoneos-arm64.deb
+MD5sum: 6d82e62445df64a1fb052d0426256c76
+SHA1: af1261cd7189c1737837b74c4d2831fade702b41
+SHA256: c2df1769052aacbb16d7c8f786d8f2ef211a13dce652e2aaf6e8fb2bc7bce289
+Size: 48310
 Tag: role::hacker
