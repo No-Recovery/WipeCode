@@ -133,11 +133,13 @@ def build(out_dir, debs):
     os.makedirs(pool_dir)
 
     stanzas = []
+    versions = []
     for deb in sorted(debs):
         base = os.path.basename(deb)
         target = os.path.join(pool_dir, base)
         shutil.copy2(deb, target)
         control = read_control(deb)
+        versions.append(control.get("Version", "0"))
         stanzas.append(
             stanza(control, f"{POOL}/{base}", os.path.getsize(target), digests(target))
         )
@@ -170,7 +172,9 @@ def build(out_dir, debs):
         f"Label: {ORIGIN}",
         f"Suite: {SUITE}",
         f"Codename: {SUITE}",
-        "Version: 1.0",
+        # Tracked from the packages themselves so the suite version cannot drift
+        # away from what is actually being offered.
+        f"Version: {max(versions)}",
         f"Architectures: {ARCH}",
         f"Components: {COMPONENT}",
         f"Date: {email.utils.formatdate(newest, usegmt=True)}",

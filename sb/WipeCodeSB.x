@@ -105,6 +105,49 @@ static void Vo1dekPublishDeviceInfo(void) {
 
 #pragma mark - probe
 
+// Enumerating the runtime beats guessing class names. iOS 15/16 has no
+// SBDeviceErase at all: the erase path is FBSSystemService's
+// -dataResetWithRequest:completion:, but the object it takes is created by a
+// class whose name moved between releases. Every candidate is discovered here by
+// substring instead.
+static void Vo1dekDumpClassesMatching(const char *needle) {
+    unsigned int count = 0;
+    const char **names = objc_copyClassNames(&count);
+    if (names == NULL) return;
+
+    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    for (unsigned int i = 0; i < count; i++) {
+        if (strstr(names[i], needle) != NULL) [hits addObject:@(names[i])];
+    }
+    [hits sortUsingSelector:@selector(compare:)];
+
+    Vo1dekLog(@"[probe] --- classes matching '%s': %lu ---", needle, (unsigned long)hits.count);
+    for (NSString *name in hits) {
+        Vo1dekLog(@"[probe]   %@", name);
+    }
+    free(names);
+    return;
+}
+
+// Same idea, but also dumps every signature: used for the families we must
+// actually call into, so one probe round yields the whole call site.
+static void Vo1dekDumpFamily(const char *needle) {
+    unsigned int count = 0;
+    const char **names = objc_copyClassNames(&count);
+    if (names == NULL) return;
+
+    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    for (unsigned int i = 0; i < count; i++) {
+        if (strstr(names[i], needle) != NULL) [hits addObject:@(names[i])];
+    }
+    [hits sortUsingSelector:@selector(compare:)];
+
+    for (NSString *name in hits) {
+        Vo1dekDumpMethodsOf(name.fileSystemRepresentation);
+    }
+    free(names);
+}
+
 // The exact argument keys accepted by SBDeviceErase cannot be read out of the
 // method list, so on first run we dump the real API surface of the classes and
 // helpers we rely on. Type encodings fully determine each signature, which is
@@ -148,25 +191,43 @@ static void Vo1dekRunCommand(NSString *launchPath, NSArray<NSString *> *argument
     Vo1dekLog(@"[probe]   exit status %d", status);
 }
 
+// Bump this whenever the probe below changes. The completion marker carries the
+// version, so an upgraded build re-probes on its own instead of needing the user
+// to hand-delete probe.log first.
+#define VO1DEK_PROBE_VERSION 2
+
 static void Vo1dekRunProbeIfNeeded(void) {
     // The log file already exists by the time we get here — the boot line above
     // created it — so the completion marker is what decides, not the file.
     NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
                                                   encoding:NSUTF8StringEncoding
                                                      error:NULL];
-    if ([existing rangeOfString:@"[probe] done"].location != NSNotFound) return;
+    NSString *marker = [NSString stringWithFormat:@"[probe] done v%d", VO1DEK_PROBE_VERSION];
+    if ([existing rangeOfString:marker].location != NSNotFound) return;
 
-    Vo1dekLog(@"[probe] first run, dumping API surface");
-    Vo1dekDumpMethodsOf("SBDeviceErase");
-    Vo1dekDumpMethodsOf("FBSSystemService");
-    Vo1dekDumpMethodsOf("FBSSystemServiceRequest");
-    Vo1dekDumpMethodsOf("SBAuthenticationManager");
+    Vo1dekLog(@"[probe] ==== run v%d ====", VO1DEK_PROBE_VERSION);
+
+    // Discover the real class names first, then dump full signatures for the
+    // families we intend to call into.
+    Vo1dekDumpClassesMatching("FBSSystemService");
+    Vo1dekDumpClassesMatching("DeviceErase");
+    Vo1dekDumpClassesMatching("DataReset");
+    Vo1dekDumpClassesMatching("Erase");
+    Vo1dekDumpClassesMatching("Passcode");
+    Vo1dekDumpClassesMatching("SBAuth");
+    Vo1dekDumpClassesMatching("SBLockScreen");
+    Vo1dekDumpClassesMatching("PSWeb");
+    Vo1dekDumpClassesMatching("Authenticate");
+
+    Vo1dekDumpFamily("FBSSystemService");
+    Vo1dekDumpFamily("PSWeb");
+
+    // The command-line fallback looked unreachable last run; record where these
+    // actually live so the decision is based on the device, not on my guess.
     Vo1dekRunCommand(@"/usr/bin/fdesetup", @[@"-h"]);
-    Vo1dekRunCommand(@"/usr/bin/fdesetup", @[@"help"]);
-    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/usr/bin/sudo"]) {
-        Vo1dekRunCommand(@"/var/jb/usr/bin/sudo", @[@"-n", @"true"]);
-    }
-    Vo1dekLog(@"[probe] done");
+    Vo1dekRunCommand(@"/var/jb/usr/bin/fdesetup", @[@"-h"]);
+
+    Vo1dekLog(@"[probe] done v%d", VO1DEK_PROBE_VERSION);
 }
 
 #pragma mark - erasing

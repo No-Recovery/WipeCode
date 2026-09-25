@@ -328,11 +328,20 @@ static WKWebView *Vo1dekFindWebView(UIView *view) {
     return nil;
 }
 
+// Settings hosts every plugin pane in a WKWebView, so "has a web view" is not
+// specific enough. Our pane is the one whose URL lives inside our own bundle.
+static BOOL Vo1dekIsOurPane(WKWebView *pane) {
+    NSString *url = pane.URL.absoluteString;
+    if (url.length == 0) return NO;
+    return [url rangeOfString:@(Vo1dekPaneMarker)].location != NSNotFound;
+}
+
 // Takes `id` because the hooked class is a private type we never declare, so the
 // compiler sees it as distinct from UIViewController and rejects the conversion.
 static void Vo1dekAttachBridge(id controller) {
     WKWebView *pane = Vo1dekFindWebView(((UIViewController *)controller).view);
     if (pane == nil) return;
+    if (!Vo1dekIsOurPane(pane)) return;
 
     Vo1dekPaneWebView = pane;
     @try {
@@ -354,13 +363,19 @@ static void Vo1dekAttachBridge(id controller) {
 
 %group Vo1dekPaneHooks
 
-%hook PSWebViewController
+// Hooking UIViewController rather than PSWebViewController: the private class was
+// reported missing at load time, because Settings pulls its plugin classes in
+// lazily and our dylib is constructed before that happens. UIViewController is
+// always resident, and the bundle-marker check above keeps the hook inert for
+// every other Settings pane. viewDidAppear: is used because the pane's URL is
+// still unset during viewDidLoad.
+%hook UIViewController
 - (void)viewDidLoad {
     %orig;
     Vo1dekAttachBridge(self);
 }
 
-- (void)viewWillAppear:(BOOL)animated {
+- (void)viewDidAppear:(BOOL)animated {
     %orig;
     Vo1dekAttachBridge(self);
 }
@@ -386,11 +401,10 @@ static void Vo1dekResultCallback(CFNotificationCenterRef center, void *observer,
     @autoreleasepool {
         Vo1dekEnsureDir();
 
-        if (objc_getClass("PSWebViewController") != Nil) {
-            %init(Vo1dekPaneHooks);
-        } else {
-            Vo1dekLog(@"[pref] PSWebViewController missing, pane bridge not installed");
-        }
+        // No class-existence gate here: the private pane controller is loaded
+        // lazily by Settings and is reliably absent this early, which used to
+        // skip hook installation entirely and leave the pane with no bridge.
+        %init(Vo1dekPaneHooks);
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         Vo1dekPrefToken,
