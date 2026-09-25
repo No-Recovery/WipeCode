@@ -48,11 +48,13 @@ jobs:
         run: |
           export THEOS=/home/runner/theos
           export PATH="$THEOS/bin:$PATH"
-          # Theos's `before-package` target depends on $(THEOS_PACKAGE_DIR) and
-          # nothing creates it on a clean runner, so make would abort with
-          # "No rule to make target 'packages'".
+          # Theos's `before-package` target depends on $(THEOS_PACKAGE_DIR), which
+          # defaults to ./packages (THEOS_BUILD_DIR is ".") and is never created on a
+          # clean checkout -> "No rule to make target 'packages'". Pin it to an
+          # absolute path we create ourselves; command-line variables are inherited
+          # by the recursive make invocations for the sb/ and pref/ subprojects.
           mkdir -p "$THEOS/packages"
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless THEOS_PACKAGE_DIR="$THEOS/packages"
 
       - name: Collect debs
         run: |
