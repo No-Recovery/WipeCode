@@ -12,7 +12,6 @@ control    text eol=lf
 *.x       text eol=lf
 *.deb     binary
 # apt metadata must stay byte-exact: LF endings, no filtering.
-dist/Packages     text eol=lf
-dist/Release      text eol=lf
-dist/Packages.gz  binary
-dist/pool/**      binary
+dist/**            text eol=lf
+dist/**/*.gz       binary
+dist/pool/**       binary

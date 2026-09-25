@@ -126,6 +126,60 @@ def stanza(control, filename, size, sums):
     return "\n".join(lines)
 
 
+def write_text(path, text):
+    # newline="\n" keeps the working copy LF on Windows; .gitattributes stores LF.
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
+def write_gz(path, text):
+    # mtime=0 keeps the output byte-identical across runs so CI only commits
+    # when the contents actually change.
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as raw, gzip.GzipFile(
+        filename="", mode="wb", fileobj=raw, mtime=0
+    ) as fh:
+        fh.write(text.encode("utf-8"))
+
+
+def checksum_lines(root, names):
+    md5, sha256 = [], []
+    for name in names:
+        full = os.path.join(root, *name.split("/"))
+        size = os.path.getsize(full)
+        md5.append(f" {digests(full)[0]} {size} {name}")
+        sha256.append(f" {digests(full)[2]} {size} {name}")
+    return md5, sha256
+
+
+# Sileo rejects a source whose bare URL 404s, and it may also look for the
+# conventional dists/ tree. Serving both layouts means neither client has a
+# reason to fail.
+INDEX_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WipeCode package source</title>
+<style>
+body {{ font: 15px/1.6 -apple-system, system-ui, sans-serif; margin: 2rem auto; max-width: 40rem; padding: 0 1rem; }}
+code {{ background: #f2f2f7; padding: .1rem .3rem; border-radius: .25rem; }}
+</style>
+</head>
+<body>
+<h1>WipeCode</h1>
+<p>Add this URL as a package source in Sileo or Zebra:</p>
+<p><code>{base}</code></p>
+<p>Install <code>com.vo1dek.wipecode-sb</code> first, then
+<code>com.vo1dek.wipecode-pref</code>.</p>
+<p>Warning: this tweak performs Erase All Content and Settings. It is
+irreversible. Test on a device with nothing on it.</p>
+</body>
+</html>
+"""
+
+
 def build(out_dir, debs):
     pool_dir = os.path.join(out_dir, *POOL.split("/"))
     if os.path.isdir(out_dir):
@@ -145,47 +199,95 @@ def build(out_dir, debs):
         )
 
     packages = "\n\n".join(stanzas) + "\n"
-    # newline="\n" keeps the working copy LF on Windows; .gitattributes stores LF.
-    with open(os.path.join(out_dir, "Packages"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(packages)
-    # mtime=0 keeps the output byte-identical across runs so CI only commits
-    # when the contents actually change.
-    gz_path = os.path.join(out_dir, "Packages.gz")
-    with open(gz_path, "wb") as raw, gzip.GzipFile(
-        filename="", mode="wb", fileobj=raw, mtime=0
-    ) as fh:
-        fh.write(packages.encode("utf-8"))
-
-    index = ["Packages", "Packages.gz"]
-    sections = {"MD5Sum": [], "SHA256": []}
-    for name in index:
-        full = os.path.join(out_dir, name)
-        size = os.path.getsize(full)
-        sections["MD5Sum"].append(f" {digests(full)[0]} {size} {name}")
-        sections["SHA256"].append(f" {digests(full)[2]} {size} {name}")
-
     # Date is derived from the newest input .deb rather than "now", so re-running
-    # with the same inputs produces a byte-identical Release and CI stays a no-op.
-    newest = max(os.path.getmtime(d) for d in debs)
-    release = [
-        f"Origin: {ORIGIN}",
-        f"Label: {ORIGIN}",
-        f"Suite: {SUITE}",
-        f"Codename: {SUITE}",
-        # Tracked from the packages themselves so the suite version cannot drift
-        # away from what is actually being offered.
-        f"Version: {max(versions)}",
-        f"Architectures: {ARCH}",
-        f"Components: {COMPONENT}",
-        f"Date: {email.utils.formatdate(newest, usegmt=True)}",
-        "MD5Sum:",
-        *sections["MD5Sum"],
-        "SHA256:",
-        *sections["SHA256"],
-        "",
-    ]
-    with open(os.path.join(out_dir, "Release"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("\n".join(release))
+    # with the same inputs produces byte-identical output and CI stays a no-op.
+    date = email.utils.formatdate(max(os.path.getmtime(d) for d in debs), usegmt=True)
+    suite_version = max(versions)
+
+    # Flat layout, at the source root.
+    write_text(os.path.join(out_dir, "Packages"), packages)
+    write_gz(os.path.join(out_dir, "Packages.gz"), packages)
+    md5, sha256 = checksum_lines(out_dir, ["Packages", "Packages.gz"])
+    write_text(
+        os.path.join(out_dir, "Release"),
+        "\n".join(
+            [
+                f"Origin: {ORIGIN}",
+                f"Label: {ORIGIN}",
+                f"Suite: {SUITE}",
+                f"Codename: {SUITE}",
+                # Tracked from the packages themselves so the suite version cannot
+                # drift away from what is actually being offered.
+                f"Version: {suite_version}",
+                f"Architectures: {ARCH}",
+                f"Components: {COMPONENT}",
+                f"Date: {date}",
+                "MD5Sum:",
+                *md5,
+                "SHA256:",
+                *sha256,
+                "",
+            ]
+        ),
+    )
+
+    # Conventional dists/ layout, which is what APT proper looks for.
+    binary = f"dists/{SUITE}/{COMPONENT}/binary-{ARCH}"
+    write_text(os.path.join(out_dir, binary, "Packages"), packages)
+    write_gz(os.path.join(out_dir, binary, "Packages.gz"), packages)
+    md5, sha256 = checksum_lines(out_dir, [f"{binary}/Packages", f"{binary}/Packages.gz"])
+    write_text(
+        os.path.join(out_dir, binary, "Release"),
+        "\n".join(
+            [
+                f"Origin: {ORIGIN}",
+                f"Label: {ORIGIN}",
+                f"Suite: {SUITE}",
+                f"Codename: {SUITE}",
+                f"Version: {suite_version}",
+                f"Architectures: {ARCH}",
+                f"Components: {COMPONENT}",
+                f"Date: {date}",
+                "MD5Sum:",
+                *md5,
+                "SHA256:",
+                *sha256,
+                "",
+            ]
+        ),
+    )
+
+    # The suite Release must account for the per-component files, named relative
+    # to dists/<suite>/.
+    comp_files = [f"{COMPONENT}/binary-{ARCH}/Release", f"{COMPONENT}/binary-{ARCH}/Packages"]
+    md5, sha256 = checksum_lines(os.path.join(out_dir, "dists", SUITE), comp_files)
+    write_text(
+        os.path.join(out_dir, "dists", SUITE, "Release"),
+        "\n".join(
+            [
+                f"Origin: {ORIGIN}",
+                f"Label: {ORIGIN}",
+                f"Suite: {SUITE}",
+                f"Codename: {SUITE}",
+                f"Version: {suite_version}",
+                f"Architectures: {ARCH}",
+                f"Components: {COMPONENT}",
+                f"Date: {date}",
+                "MD5Sum:",
+                *md5,
+                "SHA256:",
+                *sha256,
+                "",
+            ]
+        ),
+    )
+
+    # A bare index.html so the source root answers 200 instead of 404; Sileo
+    # validates the base URL before it will accept a source.
+    write_text(
+        os.path.join(out_dir, "index.html"),
+        INDEX_HTML.format(base="https://no-recovery.github.io/WipeCode"),
+    )
 
     return len(debs)
 
