@@ -360,7 +360,12 @@ static void Vo1dekNoteBundlePath(id controller) {
         Vo1dekSeenBundles = [NSMutableSet set];
     }
     @try {
-        NSBundle *bundle = ((UIViewController *)controller).navigationController.viewController.bundle;
+        NSBundle *bundle = nil;
+        UIViewController *vc = (UIViewController *)controller;
+        if ([vc isKindOfClass:[UINavigationController class]]) {
+            vc = ((UINavigationController *)vc).viewControllers.firstObject;
+        }
+        if (vc != nil) bundle = vc.bundle;
         if (bundle == nil) bundle = [NSBundle bundleForClass:[controller class]];
         NSString *path = bundle.bundlePath ?: @"(no path)";
         NSString *key = [NSString stringWithFormat:@"%@|%@", NSStringFromClass([controller class]), path];
