@@ -48,6 +48,10 @@ jobs:
         run: |
           export THEOS=/home/runner/theos
           export PATH="$THEOS/bin:$PATH"
+          # Theos's `before-package` target depends on $(THEOS_PACKAGE_DIR) and
+          # nothing creates it on a clean runner, so make would abort with
+          # "No rule to make target 'packages'".
+          mkdir -p "$THEOS/packages"
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
       - name: Collect debs
