@@ -723,8 +723,10 @@ static NSInteger Vo1dekRowsHook(id self, SEL _cmd, UITableView *tv, NSInteger se
     return n;
 }
 
-// Settings draws its own icons as small rounded tiles. Drawing ours the same way
-// keeps the row looking native instead of a stray text cell.
+// Settings draws its own icons as small rounded tiles, so ours is drawn the same
+// way instead of shipping a loose image. The power glyph is stroked by hand: the
+// deployment target predates SF Symbols and the build treats unguarded
+// availability as an error, so no iOS 13 only API may be referenced here.
 static UIImage *Vo1dekPaneIcon(void) {
     static UIImage *icon = nil;
     static dispatch_once_t once;
@@ -732,23 +734,39 @@ static UIImage *Vo1dekPaneIcon(void) {
         UIGraphicsImageRenderer *renderer =
             [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(29.0, 29.0)];
         icon = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            (void)context;
             CGRect rect = CGRectMake(0.0, 0.0, 29.0, 29.0);
-            UIColor *base = [UIColor colorWithRed:0.85 green:0.16 blue:0.18 alpha:1.0];
-            [[base colorWithBrightness:0.15] setFill];
-            [[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0] fill];
-            [base setFill];
-            [[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0] fill];
+            UIBezierPath *tile = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0];
 
-            UIImageSymbolConfiguration *config =
-                [UIImageSymbolConfiguration configurationWithPointSize:16.0
-                                                                weight:UIImageSymbolWeightSemibold];
-            UIImage *symbol = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"
-                                          withConfiguration:config];
-            if (symbol != nil) {
-                [[symbol imageWithTintColor:[UIColor whiteColor]
-                             renderingMode:UIImageRenderingModeAlwaysOriginal]
-                    drawInRect:CGRectMake(6.5, 6.5, 16.0, 16.0)];
-            }
+            CGContextRef ctx = UIGraphicsGetCurrentContext();
+            [[UIColor colorWithRed:0.62 green:0.09 blue:0.11 alpha:1.0] setFill];
+            [tile fill];
+
+            CGContextSaveGState(ctx);
+            CGContextAddPath(ctx, tile.CGPath);
+            CGContextClip(ctx);
+            CGContextDrawLinearGradient(ctx,
+                                        (CGGradientRef)[[UIColor colorWithRed:0.93 green:0.24 blue:0.24 alpha:1.0] CGColor],
+                                        (CGGradientRef)[[UIColor colorWithRed:0.74 green:0.11 blue:0.14 alpha:1.0] CGColor],
+                                        CGPointMake(0.0, 0.0),
+                                        CGPointMake(29.0, 29.0),
+                                        0);
+            CGContextRestoreGState(ctx);
+
+            CGPoint centre = CGPointMake(14.5, 15.5);
+            CGFloat radius = 6.2;
+            UIBezierPath *glyph = [UIBezierPath bezierPathWithArcWithCenter:centre
+                                                                  radius:radius
+                                                              startAngle:(CGFloat)(-M_PI_4)
+                                                                endAngle:(CGFloat)(M_PI * 1.25)
+                                                               clockwise:YES];
+            [glyph moveToPoint:CGPointMake(centre.x, centre.y - radius - 3.4)];
+            [glyph addLineToPoint:centre];
+
+            glyph.lineWidth = 2.0;
+            glyph.lineCapStyle = kCGLineCapRound;
+            [[UIColor whiteColor] setStroke];
+            [glyph stroke];
         }];
     });
     return icon;
