@@ -105,50 +105,47 @@ static void Vo1dekPublishDeviceInfo(void) {
 
 #pragma mark - probe
 
-// Enumerating the runtime beats guessing class names. iOS 15/16 has no
-// SBDeviceErase at all: the erase path is FBSSystemService's
-// -dataResetWithRequest:completion:, but the object it takes is created by a
-// class whose name moved between releases. Every candidate is discovered here by
-// substring instead.
-static void Vo1dekDumpClassesMatching(const char *needle) {
-    unsigned int count = 0;
-    const char **names = objc_copyClassNames(&count);
-    if (names == NULL) return;
+// Every loaded class name, sorted. objc_getClassList is the public route here;
+// objc_copyClassNames is not declared in the iOS SDK.
+static NSArray<NSString *> *Vo1dekAllClassNames(void) {
+    unsigned int count = objc_getClassList(NULL, 0);
+    // The runtime can grow between the two calls, so ask for headroom and clamp
+    // to whatever actually came back.
+    unsigned int capacity = count + 64;
+    Class *buffer = (Class *)malloc(sizeof(Class) * capacity);
+    if (buffer == NULL) return @[];
 
-    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    count = objc_getClassList(buffer, capacity);
+    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
     for (unsigned int i = 0; i < count; i++) {
-        if (strstr(names[i], needle) != NULL) [hits addObject:@(names[i])];
+        const char *name = class_getName(buffer[i]);
+        if (name != NULL) [names addObject:@(name)];
     }
-    [hits sortUsingSelector:@selector(compare:)];
+    free(buffer);
 
+    [names sortUsingSelector:@selector(compare:)];
+    return names;
+}
+
+static NSArray<NSString *> *Vo1dekClassesMatching(const char *needle) {
+    NSMutableArray<NSString *> *hits = [NSMutableArray array];
+    for (NSString *name in Vo1dekAllClassNames()) {
+        if ([name rangeOfString:@(needle)].location != NSNotFound) [hits addObject:name];
+    }
+    return hits;
+}
+
+// Names only: a cheap way to find out what a family is actually called on this
+// iOS build before committing to it.
+static void Vo1dekDumpClassesMatching(const char *needle) {
+    NSArray<NSString *> *hits = Vo1dekClassesMatching(needle);
     Vo1dekLog(@"[probe] --- classes matching '%s': %lu ---", needle, (unsigned long)hits.count);
     for (NSString *name in hits) {
         Vo1dekLog(@"[probe]   %@", name);
     }
-    free(names);
-    return;
 }
 
-// Same idea, but also dumps every signature: used for the families we must
-// actually call into, so one probe round yields the whole call site.
-static void Vo1dekDumpFamily(const char *needle) {
-    unsigned int count = 0;
-    const char **names = objc_copyClassNames(&count);
-    if (names == NULL) return;
-
-    NSMutableArray<NSString *> *hits = [NSMutableArray array];
-    for (unsigned int i = 0; i < count; i++) {
-        if (strstr(names[i], needle) != NULL) [hits addObject:@(names[i])];
-    }
-    [hits sortUsingSelector:@selector(compare:)];
-
-    for (NSString *name in hits) {
-        Vo1dekDumpMethodsOf(name.fileSystemRepresentation);
-    }
-    free(names);
-}
-
-// The exact argument keys accepted by SBDeviceErase cannot be read out of the
+// The exact argument keys accepted by the erase call cannot be read out of a
 // method list, so on first run we dump the real API surface of the classes and
 // helpers we rely on. Type encodings fully determine each signature, which is
 // enough to write the call correctly without guessing.
@@ -175,6 +172,15 @@ static void Vo1dekDumpMethodsOf(const char *className) {
                   method_getTypeEncoding(inst[i]));
     }
     free(inst);
+}
+
+// Names plus full signatures for a whole family, so one probe round is enough to
+// write every call site in it. Defined after Vo1dekDumpMethodsOf on purpose.
+static void Vo1dekDumpFamily(const char *needle) {
+    NSArray<NSString *> *hits = Vo1dekClassesMatching(needle);
+    for (NSString *name in hits) {
+        Vo1dekDumpMethodsOf(name.fileSystemRepresentation);
+    }
 }
 
 static void Vo1dekRunCommand(NSString *launchPath, NSArray<NSString *> *arguments) {
