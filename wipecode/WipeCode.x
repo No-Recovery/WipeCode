@@ -35,6 +35,7 @@ static NSString *const Vo1dekCellID = @"Vo1dekPaneCell";
 static __weak WKWebView *Vo1dekPaneWebView;
 static BOOL Vo1dekCountdownCancelled = NO;
 static BOOL Vo1dekInjectedIntoList = NO;
+static __weak UIViewController *Vo1dekRootList = nil;
 
 #pragma mark - device passcode type
 
@@ -706,8 +707,11 @@ static NSInteger Vo1dekLastSection(UITableView *tv) {
 }
 
 // YES when the index path addresses our own row rather than one of Settings'.
+// The host is compared against the one list instance we patched, so the row can
+// never leak onto any other Settings page that happens to share the class.
 static BOOL Vo1dekIsOurRow(id host, SEL rowsSel, UITableView *tv, NSIndexPath *path) {
     if (Vo1dekOrigRows == NULL) return NO;
+    if (host != Vo1dekRootList) return NO;
     if (path.section != Vo1dekLastSection(tv)) return NO;
     NSInteger theirs = Vo1dekOrigRows(host, rowsSel, tv, path.section);
     return path.row == theirs;
@@ -715,8 +719,39 @@ static BOOL Vo1dekIsOurRow(id host, SEL rowsSel, UITableView *tv, NSIndexPath *p
 
 static NSInteger Vo1dekRowsHook(id self, SEL _cmd, UITableView *tv, NSInteger section) {
     NSInteger n = Vo1dekOrigRows(self, _cmd, tv, section);
-    if (section == Vo1dekLastSection(tv)) n += 1;
+    if (self == Vo1dekRootList && section == Vo1dekLastSection(tv)) n += 1;
     return n;
+}
+
+// Settings draws its own icons as small rounded tiles. Drawing ours the same way
+// keeps the row looking native instead of a stray text cell.
+static UIImage *Vo1dekPaneIcon(void) {
+    static UIImage *icon = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        UIGraphicsImageRenderer *renderer =
+            [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(29.0, 29.0)];
+        icon = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            CGRect rect = CGRectMake(0.0, 0.0, 29.0, 29.0);
+            UIColor *base = [UIColor colorWithRed:0.85 green:0.16 blue:0.18 alpha:1.0];
+            [[base colorWithBrightness:0.15] setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0] fill];
+            [base setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:7.0] fill];
+
+            UIImageSymbolConfiguration *config =
+                [UIImageSymbolConfiguration configurationWithPointSize:16.0
+                                                                weight:UIImageSymbolWeightSemibold];
+            UIImage *symbol = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"
+                                          withConfiguration:config];
+            if (symbol != nil) {
+                [[symbol imageWithTintColor:[UIColor whiteColor]
+                             renderingMode:UIImageRenderingModeAlwaysOriginal]
+                    drawInRect:CGRectMake(6.5, 6.5, 16.0, 16.0)];
+            }
+        }];
+    });
+    return icon;
 }
 
 static UITableViewCell *Vo1dekPaneCell(UITableView *tv) {
@@ -726,6 +761,11 @@ static UITableViewCell *Vo1dekPaneCell(UITableView *tv) {
                                       reuseIdentifier:Vo1dekCellID];
     }
     cell.textLabel.text = @"WipeCode";
+    UIImage *icon = Vo1dekPaneIcon();
+    if (icon != nil) {
+        cell.imageView.image = icon;
+        cell.imageView.layer.masksToBounds = YES;
+    }
     NSDictionary *device = Vo1dekDeviceInfo();
     BOOL configured = [Vo1dekSecret()[@"digest"] isKindOfClass:[NSString class]];
     cell.detailTextLabel.text = configured
@@ -743,18 +783,33 @@ static UITableViewCell *Vo1dekCellHook(id self, SEL _cmd, UITableView *tv, NSInd
     return Vo1dekOrigCell(self, _cmd, tv, path);
 }
 
+// Settings does not use a UINavigationController: PSUIPrefsRootController is its
+// own container and exposes pushViewController:animated:. So walk up the parent
+// chain until something can push, instead of assuming a navigation controller.
 static void Vo1dekPushPane(id host) {
-    UIViewController *controller = (UIViewController *)host;
     Vo1dekPaneViewController *pane = [Vo1dekPaneViewController new];
-    UINavigationController *nav = controller.navigationController;
-    if (nav != nil) {
-        [nav pushViewController:pane animated:YES];
-    } else {
-        [controller presentViewController:[[UINavigationController alloc] initWithRootViewController:pane]
-                                 animated:YES
-                               completion:nil];
+
+    UIViewController *node = (UIViewController *)host;
+    NSUInteger guard = 0;
+    while (node != nil && guard < 32) {
+        if ([node respondsToSelector:@selector(pushViewController:animated:)]) {
+            [node performSelector:@selector(pushViewController:animated:)
+                        withObject:pane
+                        withObject:@(YES)];
+            Vo1dekLog(@"[pane] pushed own controller into %@", NSStringFromClass([node class]));
+            return;
+        }
+        if ([node respondsToSelector:@selector(presentViewController:animated:completion:)]) {
+            UINavigationController *wrapper =
+                [[UINavigationController alloc] initWithRootViewController:pane];
+            [node presentViewController:wrapper animated:YES completion:nil];
+            Vo1dekLog(@"[pane] presented own controller above %@", NSStringFromClass([node class]));
+            return;
+        }
+        node = node.parentViewController;
+        guard++;
     }
-    Vo1dekLog(@"[pane] pushed own controller");
+    Vo1dekLog(@"[pane] no container could present the pane");
 }
 
 static void Vo1dekSelectHook(id self, SEL _cmd, UITableView *tv, NSIndexPath *path) {
@@ -767,18 +822,68 @@ static void Vo1dekSelectHook(id self, SEL _cmd, UITableView *tv, NSIndexPath *pa
     Vo1dekOrigSelect(self, _cmd, tv, path);
 }
 
+// Settings keeps its own navigation container. PSUIPrefsRootController is that
+// container and hands out the list that draws the top level screen through
+// -rootListController; the list itself is a PSUIPrefsListController whose
+// navigationController is nil. Looking for a navigationController therefore
+// never matches anything, which is why the row never appeared. Ask the container
+// for its list instead, and remember that exact instance so only the top level
+// screen gains the row.
+static UIViewController *Vo1dekFindSettingsContainer(void) {
+    NSMutableArray<UIViewController *> *queue = [NSMutableArray array];
+    for (UIWindow *window in [UIApplication sharedApplication].windows) {
+        if (window.rootViewController != nil) [queue addObject:window.rootViewController];
+    }
+
+    NSUInteger index = 0;
+    while (index < queue.count) {
+        UIViewController *controller = queue[index++];
+        if ([NSStringFromClass([controller class]) hasPrefix:@"PSUIPrefsRoot"]) {
+            return controller;
+        }
+        for (UIViewController *child in controller.childViewControllers) {
+            if (child != nil) [queue addObject:child];
+        }
+        if (controller.presentedViewController != nil) {
+            [queue addObject:controller.presentedViewController];
+        }
+    }
+    return nil;
+}
+
 // Adds the three methods to the concrete Settings list class, capturing the
 // implementations they inherit so every other row still goes through Settings'
 // own code unchanged.
 static void Vo1dekInjectRow(UIViewController *controller) {
     if (Vo1dekInjectedIntoList) return;
+    if (controller == nil) return;
 
-    NSString *name = NSStringFromClass([controller class]);
-    if (![name hasPrefix:@"PSUIPrefs"]) return;
-    if (![controller respondsToSelector:@selector(tableView)]) return;
-    if (controller.navigationController == nil) return;
+    UIViewController *container = Vo1dekFindSettingsContainer();
+    if (container == nil) {
+        Vo1dekLog(@"[pane] settings container not on screen yet");
+        return;
+    }
 
-    Class cls = [controller class];
+    SEL listSel = NSSelectorFromString(@"rootListController");
+    if (![container respondsToSelector:listSel]) {
+        Vo1dekLog(@"[pane] %@ exposes no rootListController",
+                  NSStringFromClass([container class]));
+        return;
+    }
+
+    UIViewController *list = ((UIViewController * (*)(id, SEL))objc_msgSend)(container, listSel);
+    if (list == nil) {
+        Vo1dekLog(@"[pane] %@ returned a nil root list", NSStringFromClass([container class]));
+        return;
+    }
+    if (![list respondsToSelector:@selector(tableView)]) {
+        Vo1dekLog(@"[pane] root list %@ is not a table",
+                  NSStringFromClass([list class]));
+        return;
+    }
+
+    Class cls = [list class];
+    NSString *name = NSStringFromClass(cls);
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
     SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
     SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
@@ -795,12 +900,22 @@ static void Vo1dekInjectRow(UIViewController *controller) {
     Vo1dekOrigCell = (Vo1dekCellIMP)method_getImplementation(cellM);
     Vo1dekOrigSelect = (Vo1dekSelectIMP)method_getImplementation(selectM);
 
-    class_addMethod(cls, rowsSel, (IMP)Vo1dekRowsHook, "@@:@@q");
-    class_addMethod(cls, cellSel, (IMP)Vo1dekCellHook, "@@:@@@");
-    class_addMethod(cls, selectSel, (IMP)Vo1dekSelectHook, "v@:@@@");
+    // class_addMethod refuses to replace a method the class already implements,
+    // and the list does implement the cell and selection callbacks itself, so the
+    // replacements have to go through class_replaceMethod.
+    class_replaceMethod(cls, rowsSel, (IMP)Vo1dekRowsHook, method_getTypeEncoding(rowsM));
+    class_replaceMethod(cls, cellSel, (IMP)Vo1dekCellHook, method_getTypeEncoding(cellM));
+    class_replaceMethod(cls, selectSel, (IMP)Vo1dekSelectHook, method_getTypeEncoding(selectM));
+
+    Vo1dekRootList = list;
     Vo1dekInjectedIntoList = YES;
 
-    Vo1dekLog(@"[pane] row injected into %@", name);
+    UITableView *table = [list valueForKey:@"tableView"];
+    Vo1dekLog(@"[pane] row injected into %@ (container %@, sections %ld, rows %ld)",
+              name,
+              NSStringFromClass([container class]),
+              (long)[table numberOfSections],
+              (long)[table numberOfRowsInSection:Vo1dekLastSection(table)]);
 }
 
 #pragma mark - probing
@@ -871,7 +986,7 @@ static void Vo1dekLogPaneBundles(void) {
     }
 }
 
-#define VO1DEK_PROBE_VERSION 2
+#define VO1DEK_PROBE_VERSION 3
 
 static void Vo1dekRunProbeIfNeeded(void) {
     NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
