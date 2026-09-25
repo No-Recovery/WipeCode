@@ -6,8 +6,9 @@
 	<string>ru</string>
 	<key>CFBundleDisplayName</key>
 	<string>WipeCode</string>
-	<key>CFBundleExecutable</key>
-	<string>WipeCode</string>
+	<!-- No CFBundleExecutable: this bundle holds a settings pane, not a binary.
+	     Naming one that does not exist makes Settings treat the bundle as broken
+	     and skip it, which is why the pane never appeared. -->
 	<key>CFBundleIdentifier</key>
 	<string>com.vo1dek.wipecode-pane</string>
 	<key>CFBundleInfoDictionaryVersion</key>

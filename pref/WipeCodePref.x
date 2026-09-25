@@ -413,5 +413,28 @@ static void Vo1dekResultCallback(CFNotificationCenterRef center, void *observer,
                                         NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
         Vo1dekLog(@"[pref] Settings half loaded");
+
+        // The pane did not appear last round, and the absence of the line above
+        // from probe.log suggests this dylib may not be loading at all. Record
+        // what is actually on disk and whether the bundle parses, so the next
+        // round tells us which half is broken instead of us guessing.
+        NSBundle *self = [NSBundle bundleForClass:[Vo1dekBridge class]];
+        Vo1dekLog(@"[pref] dylib path: %@", self.bundlePath ?: @"(unknown)");
+        NSString *paneBundle = @"/var/jb/Library/PreferenceBundles/WipeCode.bundle";
+        BOOL isDir = NO;
+        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:paneBundle isDirectory:&isDir];
+        Vo1dekLog(@"[pref] pane bundle exists=%d dir=%d at %@", (int)exists, (int)isDir, paneBundle);
+        for (NSString *name in @[@"Info.plist", @"Root.plist", @"pane.html"]) {
+            NSString *path = [paneBundle stringByAppendingPathComponent:name];
+            BOOL f = [[NSFileManager defaultManager] fileExistsAtPath:path];
+            Vo1dekLog(@"[pref]   %@ present=%d", name, (int)f);
+        }
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                              [paneBundle stringByAppendingPathComponent:@"Info.plist"]];
+        Vo1dekLog(@"[pref] Info.plist parsed=%d keys=%@", (int)(info != nil), info.allKeys);
+        NSDictionary *root = [NSDictionary dictionaryWithContentsOfFile:
+                              [paneBundle stringByAppendingPathComponent:@"Root.plist"]];
+        Vo1dekLog(@"[pref] Root.plist parsed=%d specifiers=%lu", (int)(root != nil),
+                  (unsigned long)[root[@"PreferenceSpecifiers"] count]);
     }
 }

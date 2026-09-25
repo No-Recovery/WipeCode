@@ -1,6 +1,6 @@
 // WipeCodeSB.m — SpringBoard half of WipeCode.
 //
-// Settings.app cannot call SBDeviceErase directly: FBSSystemService requires the
+// Settings.app cannot call FBSSystemService directly: it requires the
 // com.apple.springboard entitlement, which only the SpringBoard process carries.
 // So this half lives in SpringBoard, listens on a Darwin notification, and performs
 // the erase on behalf of the Settings pane.
@@ -174,33 +174,10 @@ static void Vo1dekDumpMethodsOf(const char *className) {
     free(inst);
 }
 
-// Names plus full signatures for a whole family, so one probe round is enough to
-// write every call site in it. Defined after Vo1dekDumpMethodsOf on purpose.
-static void Vo1dekDumpFamily(const char *needle) {
-    NSArray<NSString *> *hits = Vo1dekClassesMatching(needle);
-    for (NSString *name in hits) {
-        Vo1dekDumpMethodsOf(name.fileSystemRepresentation);
-    }
-}
-
-static void Vo1dekRunCommand(NSString *launchPath, NSArray<NSString *> *arguments) {
-    Vo1dekLog(@"[probe] $ %@ %@", launchPath, [arguments componentsJoinedByString:@" "]);
-    int status = -1;
-    NSString *text = Vo1dekRunProcess(launchPath, arguments, &status);
-    if (text == nil) {
-        Vo1dekLog(@"[probe]   (not executable or missing)");
-        return;
-    }
-    for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
-        if (line.length) Vo1dekLog(@"[probe]   %@", line);
-    }
-    Vo1dekLog(@"[probe]   exit status %d", status);
-}
-
 // Bump this whenever the probe below changes. The completion marker carries the
 // version, so an upgraded build re-probes on its own instead of needing the user
 // to hand-delete probe.log first.
-#define VO1DEK_PROBE_VERSION 2
+#define VO1DEK_PROBE_VERSION 3
 
 static void Vo1dekRunProbeIfNeeded(void) {
     // The log file already exists by the time we get here — the boot line above
@@ -213,28 +190,23 @@ static void Vo1dekRunProbeIfNeeded(void) {
 
     Vo1dekLog(@"[probe] ==== run v%d ====", VO1DEK_PROBE_VERSION);
 
-    // Discover the real class names first, then dump full signatures for the
-    // families we intend to call into.
-    Vo1dekDumpClassesMatching("FBSSystemService");
-    Vo1dekDumpClassesMatching("DeviceErase");
-    Vo1dekDumpClassesMatching("DataReset");
-    Vo1dekDumpClassesMatching("Erase");
-    Vo1dekDumpClassesMatching("Passcode");
-    Vo1dekDumpClassesMatching("SBAuth");
-    Vo1dekDumpClassesMatching("SBLockScreen");
+    // v2 answered the open question: there is no SBDeviceErase, and the real
+    // argument class for -dataResetWithRequest:completion: is FBSDataResetRequest.
+    // What is still unknown is how that request is meant to be built, so this
+    // round is narrow and only inspects the two classes involved.
+    Vo1dekDumpMethodsOf("FBSDataResetRequest");
+    Vo1dekDumpMethodsOf("FBSSystemService");
+
+    // The pane never showed up, so record the pane-hosting classes that do exist
+    // rather than assuming PSWebView is the one in use.
     Vo1dekDumpClassesMatching("PSWeb");
-    Vo1dekDumpClassesMatching("Authenticate");
-
-    Vo1dekDumpFamily("FBSSystemService");
-    Vo1dekDumpFamily("PSWeb");
-
-    // The command-line fallback looked unreachable last run; record where these
-    // actually live so the decision is based on the device, not on my guess.
-    Vo1dekRunCommand(@"/usr/bin/fdesetup", @[@"-h"]);
-    Vo1dekRunCommand(@"/var/jb/usr/bin/fdesetup", @[@"-h"]);
+    Vo1dekDumpClassesMatching("PSBundle");
+    Vo1dekDumpClassesMatching("PreferenceBundles");
+    Vo1dekDumpClassesMatching("PSViewController");
 
     Vo1dekLog(@"[probe] done v%d", VO1DEK_PROBE_VERSION);
 }
+
 
 #pragma mark - erasing
 
@@ -245,48 +217,76 @@ static void Vo1dekPublishResult(BOOL ok, NSString *method, NSString *error) {
                                          NULL, NULL, YES);
 }
 
-// Primary path. The completion block is where success is actually reported, so the
-// return value only tells us whether the call was dispatched at all.
-static BOOL Vo1dekEraseViaSystemService(NSString *label, id arguments, NSString **outError) {
-    Class cls = NSClassFromString(@"SBDeviceErase");
-    if (cls == Nil) {
-        *outError = @"SBDeviceErase not present";
+// Primary path, and the only one the device probe supports.
+//
+// The probe on iOS 16 found no SBDeviceErase at all, but it did find both halves
+// of a real call: FBSSystemService -dataResetWithRequest:completion:, and
+// FBSDataResetRequest as the argument class. The request is allocated directly
+// rather than fetched from a factory, so the argument keys still have to be
+// confirmed against the class's own properties on the device.
+static BOOL Vo1dekEraseViaSystemService(NSString **outError) {
+    Class serviceCls = NSClassFromString(@"FBSSystemService");
+    if (serviceCls == Nil) {
+        *outError = @"FBSSystemService not present";
+        return NO;
+    }
+    Class requestCls = NSClassFromString(@"FBSDataResetRequest");
+    if (requestCls == Nil) {
+        *outError = @"FBSDataResetRequest not present";
         return NO;
     }
 
-    SEL serviceSel = NSSelectorFromString(@"defaultService");
-    if (![cls respondsToSelector:serviceSel]) {
-        *outError = @"+defaultService not present";
+    SEL serviceSel = NSSelectorFromString(@"sharedService");
+    if (![serviceCls respondsToSelector:serviceSel]) {
+        *outError = @"+sharedService not present";
         return NO;
     }
-    id service = ((id (*)(id, SEL))objc_msgSend)((id)cls, serviceSel);
+    id service = ((id (*)(id, SEL))objc_msgSend)((id)serviceCls, serviceSel);
     if (service == nil) {
-        *outError = @"+defaultService returned nil";
+        *outError = @"+sharedService returned nil";
         return NO;
     }
 
-    SEL performSel = NSSelectorFromString(@"performRequestWithArguments:error:completion:");
+    SEL performSel = NSSelectorFromString(@"dataResetWithRequest:completion:");
     if (![service respondsToSelector:performSel]) {
-        *outError = @"performRequestWithArguments:error:completion: not present";
+        *outError = @"dataResetWithRequest:completion: not present";
         return NO;
     }
 
-    NSError *err = nil;
-    Vo1dekLog(@"[erase] dispatching %@ args=%@", label, arguments);
-    void (*perform)(id, SEL, id, NSError **, id) =
-        (void (*)(id, SEL, id, NSError **, id))objc_msgSend;
-    perform(service, performSel, arguments, &err, ^(BOOL success, NSError *error) {
-        Vo1dekLog(@"[erase] %@ completion success=%d error=%@", label, (int)success, error);
-        Vo1dekPublishResult(success, label, error.localizedDescription ?: @"");
-    });
-    if (err != nil) {
-        Vo1dekLog(@"[erase] %@ failed before completion: %@", label, err);
+    id request = [requestCls new];
+    if (request == nil) {
+        *outError = @"FBSDataResetRequest alloc/init returned nil";
+        return NO;
     }
+
+    // The probe could read method signatures but not the meaning of the argument
+    // keys, so record the properties the class actually declares. Whichever of
+    // them the service needs is then set from the same names in the next round.
+    NSArray<NSString *> *keys = @[@"eraseOption", @"EraseOption", @"passcode",
+                                  @"Passcode", @"wipeCode", @"shouldErase",
+                                  @"options", @"flags", @"eraseAllContentAndSettings"];
+    for (NSString *key in keys) {
+        SEL sel = NSSelectorFromString(key);
+        if (![request respondsToSelector:sel]) continue;
+        @try {
+            id current = [request valueForKey:key];
+            Vo1dekLog(@"[erase] request property %@ = %@", key, current);
+        } @catch (NSException *e) {
+            Vo1dekLog(@"[erase] request property %@ unreadable: %@", key, e.reason);
+        }
+    }
+
+    Vo1dekLog(@"[erase] dispatching dataResetWithRequest: request=%@", request);
+    void (*perform)(id, SEL, id, id) = (void (*)(id, SEL, id, id))objc_msgSend;
+    perform(service, performSel, request, ^(BOOL success, NSError *error) {
+        Vo1dekLog(@"[erase] dataReset completion success=%d error=%@", (int)success, error);
+        Vo1dekPublishResult(success, @"dataResetWithRequest", error.localizedDescription ?: @"");
+    });
     return YES;
 }
 
-// Fallback for builds where SBDeviceErase is not reachable from SpringBoard.
-// Needs passwordless sudo, which the user sets up once by creating
+// Fallback for builds where the system service path does not answer. It needs
+// passwordless sudo, which the user sets up once by creating
 // /var/jb/etc/sudoers.d/vo1dek containing:
 //   mobile ALL=(root) NOPASSWD: /usr/bin/fdesetup
 // The argument vector itself is read from secret.plist under "rootEraseArgs" so
@@ -322,16 +322,9 @@ static BOOL Vo1dekEraseViaRoot(NSString **outError) {
 }
 
 static void Vo1dekPerformErase(void) {
-    // Empty arguments first: the service generally applies its default action and
-    // the specific keys are the part we could not verify offline.
-    NSArray<NSString *> *labels = @[@"empty", @"EraseOption", @"ErasePasscode"];
-    NSArray *argumentSets = @[@{}, @{@"EraseOption": @0}, @{@"ErasePasscode": @NO}];
-
     NSString *error = nil;
-    for (NSUInteger i = 0; i < labels.count; i++) {
-        if (Vo1dekEraseViaSystemService(labels[i], argumentSets[i], &error)) return;
-        Vo1dekLog(@"[erase] %@ unavailable: %@", labels[i], error);
-    }
+    if (Vo1dekEraseViaSystemService(&error)) return;
+    Vo1dekLog(@"[erase] dataReset path unavailable: %@", error);
 
     Vo1dekLog(@"[erase] system service path exhausted, falling back to root");
     if (Vo1dekEraseViaRoot(&error)) return;
