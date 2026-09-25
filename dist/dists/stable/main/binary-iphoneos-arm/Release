@@ -5,10 +5,10 @@ Codename: stable
 Version: 1.3
 Architectures: iphoneos-arm
 Components: main
-Date: Fri, 25 Sep 2026 20:39:13 GMT
+Date: Fri, 25 Sep 2026 20:43:06 GMT
 MD5Sum:
- 9f2e824c5b234f2e0a43b53932bd94c4 1526 dists/stable/main/binary-iphoneos-arm/Packages
- 21aa8506b1d00749446329444f2f1336 768 dists/stable/main/binary-iphoneos-arm/Packages.gz
+ 3d38573d15753cc196f81de2ad1ef00b 1526 dists/stable/main/binary-iphoneos-arm/Packages
+ 7f0d769c89d874405af059c18d3fb071 766 dists/stable/main/binary-iphoneos-arm/Packages.gz
 SHA256:
- 03a51d6987cb675b82d280f22c6ce2b7a32e7da66654c573980a1744c61ed1aa 1526 dists/stable/main/binary-iphoneos-arm/Packages
- f942fded87c5a3258b61a63b624b407824c5a9b873add848f6c94692e326aa1e 768 dists/stable/main/binary-iphoneos-arm/Packages.gz
+ f2220f2c775ccb9e7807e33ea2210907361d819d8a014f4cf03fa7d0f925267b 1526 dists/stable/main/binary-iphoneos-arm/Packages
+ ba05487f1f2bcefd4ec40b6ab39d51b2359907fb55fd9d52f8360d2a34e61ac9 766 dists/stable/main/binary-iphoneos-arm/Packages.gz
