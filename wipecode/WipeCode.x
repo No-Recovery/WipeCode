@@ -701,6 +701,11 @@ static Vo1dekRowsIMP Vo1dekOrigRows;
 static Vo1dekCellIMP Vo1dekOrigCell;
 static Vo1dekSelectIMP Vo1dekOrigSelect;
 
+// The list asks for its own row and section counts while it lays out, so asking
+// the table view anything from inside these hooks can re-enter them. While the
+// guard is up the hooks stay out of the way and let Settings' code run.
+static BOOL Vo1dekInHook = NO;
+
 static NSInteger Vo1dekLastSection(UITableView *tv) {
     NSInteger sections = (NSInteger)[tv numberOfSections];
     return sections > 0 ? sections - 1 : 0;
@@ -718,8 +723,11 @@ static BOOL Vo1dekIsOurRow(id host, SEL rowsSel, UITableView *tv, NSIndexPath *p
 }
 
 static NSInteger Vo1dekRowsHook(id self, SEL _cmd, UITableView *tv, NSInteger section) {
+    if (Vo1dekInHook) return Vo1dekOrigRows(self, _cmd, tv, section);
+    Vo1dekInHook = YES;
     NSInteger n = Vo1dekOrigRows(self, _cmd, tv, section);
     if (self == Vo1dekRootList && section == Vo1dekLastSection(tv)) n += 1;
+    Vo1dekInHook = NO;
     return n;
 }
 
@@ -801,8 +809,11 @@ static UITableViewCell *Vo1dekPaneCell(UITableView *tv) {
 
 static UITableViewCell *Vo1dekCellHook(id self, SEL _cmd, UITableView *tv, NSIndexPath *path) {
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
-    if (Vo1dekIsOurRow(self, rowsSel, tv, path)) {
-        return Vo1dekPaneCell(tv);
+    if (!Vo1dekInHook && Vo1dekIsOurRow(self, rowsSel, tv, path)) {
+        Vo1dekInHook = YES;
+        UITableViewCell *cell = Vo1dekPaneCell(tv);
+        Vo1dekInHook = NO;
+        return cell;
     }
     return Vo1dekOrigCell(self, _cmd, tv, path);
 }
@@ -838,71 +849,96 @@ static void Vo1dekPushPane(id host) {
 
 static void Vo1dekSelectHook(id self, SEL _cmd, UITableView *tv, NSIndexPath *path) {
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
-    if (Vo1dekIsOurRow(self, rowsSel, tv, path)) {
+    if (!Vo1dekInHook && Vo1dekIsOurRow(self, rowsSel, tv, path)) {
+        Vo1dekInHook = YES;
         [tv deselectRowAtIndexPath:path animated:YES];
+        Vo1dekInHook = NO;
         Vo1dekPushPane(self);
         return;
     }
     Vo1dekOrigSelect(self, _cmd, tv, path);
 }
 
-// Settings keeps its own navigation container. PSUIPrefsRootController is that
-// container and hands out the list that draws the top level screen through
-// -rootListController; the list itself is a PSUIPrefsListController whose
-// navigationController is nil. Looking for a navigationController therefore
-// never matches anything, which is why the row never appeared. Ask the container
-// for its list instead, and remember that exact instance so only the top level
-// screen gains the row.
-static UIViewController *Vo1dekFindSettingsContainer(void) {
-    NSMutableArray<UIViewController *> *queue = [NSMutableArray array];
-    for (UIWindow *window in [UIApplication sharedApplication].windows) {
-        if (window.rootViewController != nil) [queue addObject:window.rootViewController];
-    }
+// Walking the windows of UIApplication is not usable here: on a scene based app
+// that list is frequently empty, which is exactly what the log showed. The
+// controllers themselves are what the hook already receives, so the graph is
+// walked from there instead: parent, children, presented, navigation and split
+// controllers. Every visited controller is recorded once so the next log tells us
+// the real shape of the Settings hierarchy instead of a guess.
+static UIViewController *Vo1dekFindSettingsList(UIViewController *start) {
+    SEL rootListSel = NSSelectorFromString(@"rootListController");
+
+    NSMutableArray<UIViewController *> *queue = [NSMutableArray arrayWithObject:start];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet setWithCapacity:32];
+    NSMutableArray<NSString *> *graph = [NSMutableArray array];
+    UIViewController *best = nil;
+    UIViewController *fallback = nil;
 
     NSUInteger index = 0;
-    while (index < queue.count) {
+    while (index < queue.count && index < 400) {
         UIViewController *controller = queue[index++];
-        if ([NSStringFromClass([controller class]) hasPrefix:@"PSUIPrefsRoot"]) {
-            return controller;
+        if (controller == nil) continue;
+        NSValue *key = [NSValue valueWithNonretainedObject:controller];
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
+
+        NSString *name = NSStringFromClass([controller class]);
+        if (graph.count < 40) {
+            [graph addObject:[NSString stringWithFormat:@"%@ parent=%@",
+                              name,
+                              controller.parentViewController != nil
+                                  ? NSStringFromClass([controller.parentViewController class])
+                                  : @"nil"]];
         }
+
+        BOOL isPrefs = [name hasPrefix:@"PSUIPrefs"];
+        BOOL isList = [controller respondsToSelector:@selector(tableView)];
+        if (isPrefs && isList) {
+            id parent = controller.parentViewController;
+            if (parent == nil) {
+                if (best == nil) best = controller;
+            } else if ([parent respondsToSelector:rootListSel]) {
+                best = controller;
+            }
+            if (fallback == nil) fallback = controller;
+        }
+
+        if (controller.parentViewController != nil) [queue addObject:controller.parentViewController];
         for (UIViewController *child in controller.childViewControllers) {
             if (child != nil) [queue addObject:child];
         }
-        if (controller.presentedViewController != nil) {
-            [queue addObject:controller.presentedViewController];
+        if (controller.presentedViewController != nil) [queue addObject:controller.presentedViewController];
+        if (controller.navigationController != nil) [queue addObject:controller.navigationController];
+        if (controller.splitViewController != nil) [queue addObject:controller.splitViewController];
+    }
+
+    static BOOL dumped = NO;
+    if (!dumped) {
+        dumped = YES;
+        for (NSString *line in graph) {
+            Vo1dekLog(@"[pane] graph %@", line);
         }
     }
-    return nil;
+
+    if (best != nil) return best;
+    return fallback;
 }
 
 // Adds the three methods to the concrete Settings list class, capturing the
 // implementations they inherit so every other row still goes through Settings'
 // own code unchanged.
 static void Vo1dekInjectRow(UIViewController *controller) {
+    static NSUInteger attempts = 0;
     if (Vo1dekInjectedIntoList) return;
     if (controller == nil) return;
+    if (attempts > 40) return;
+    attempts++;
 
-    UIViewController *container = Vo1dekFindSettingsContainer();
-    if (container == nil) {
-        Vo1dekLog(@"[pane] settings container not on screen yet");
-        return;
-    }
-
-    SEL listSel = NSSelectorFromString(@"rootListController");
-    if (![container respondsToSelector:listSel]) {
-        Vo1dekLog(@"[pane] %@ exposes no rootListController",
-                  NSStringFromClass([container class]));
-        return;
-    }
-
-    UIViewController *list = ((UIViewController * (*)(id, SEL))objc_msgSend)(container, listSel);
+    UIViewController *list = Vo1dekFindSettingsList(controller);
     if (list == nil) {
-        Vo1dekLog(@"[pane] %@ returned a nil root list", NSStringFromClass([container class]));
-        return;
-    }
-    if (![list respondsToSelector:@selector(tableView)]) {
-        Vo1dekLog(@"[pane] root list %@ is not a table",
-                  NSStringFromClass([list class]));
+        if (attempts <= 3) {
+            Vo1dekLog(@"[pane] no Settings list reachable yet (attempt %lu)", (unsigned long)attempts);
+        }
         return;
     }
 
@@ -935,9 +971,12 @@ static void Vo1dekInjectRow(UIViewController *controller) {
     Vo1dekInjectedIntoList = YES;
 
     UITableView *table = [list valueForKey:@"tableView"];
-    Vo1dekLog(@"[pane] row injected into %@ (container %@, sections %ld, rows %ld)",
+    [table reloadData];
+    Vo1dekLog(@"[pane] row injected into %@ (parent %@, sections %ld, rows %ld)",
               name,
-              NSStringFromClass([container class]),
+              list.parentViewController != nil
+                  ? NSStringFromClass([list.parentViewController class])
+                  : @"nil",
               (long)[table numberOfSections],
               (long)[table numberOfRowsInSection:Vo1dekLastSection(table)]);
 }
@@ -1010,7 +1049,7 @@ static void Vo1dekLogPaneBundles(void) {
     }
 }
 
-#define VO1DEK_PROBE_VERSION 3
+#define VO1DEK_PROBE_VERSION 4
 
 static void Vo1dekRunProbeIfNeeded(void) {
     NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
