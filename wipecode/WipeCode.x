@@ -859,86 +859,15 @@ static void Vo1dekSelectHook(id self, SEL _cmd, UITableView *tv, NSIndexPath *pa
     Vo1dekOrigSelect(self, _cmd, tv, path);
 }
 
-// Walking the windows of UIApplication is not usable here: on a scene based app
-// that list is frequently empty, which is exactly what the log showed. The
-// controllers themselves are what the hook already receives, so the graph is
-// walked from there instead: parent, children, presented, navigation and split
-// controllers. Every visited controller is recorded once so the next log tells us
-// the real shape of the Settings hierarchy instead of a guess.
-static UIViewController *Vo1dekFindSettingsList(UIViewController *start) {
-    SEL rootListSel = NSSelectorFromString(@"rootListController");
-
-    NSMutableArray<UIViewController *> *queue = [NSMutableArray arrayWithObject:start];
-    NSMutableSet<NSValue *> *seen = [NSMutableSet setWithCapacity:32];
-    NSMutableArray<NSString *> *graph = [NSMutableArray array];
-    UIViewController *best = nil;
-    UIViewController *fallback = nil;
-
-    NSUInteger index = 0;
-    while (index < queue.count && index < 400) {
-        UIViewController *controller = queue[index++];
-        if (controller == nil) continue;
-        NSValue *key = [NSValue valueWithNonretainedObject:controller];
-        if ([seen containsObject:key]) continue;
-        [seen addObject:key];
-
-        NSString *name = NSStringFromClass([controller class]);
-        if (graph.count < 40) {
-            [graph addObject:[NSString stringWithFormat:@"%@ parent=%@",
-                              name,
-                              controller.parentViewController != nil
-                                  ? NSStringFromClass([controller.parentViewController class])
-                                  : @"nil"]];
-        }
-
-        BOOL isPrefs = [name hasPrefix:@"PSUIPrefs"];
-        BOOL isList = [controller respondsToSelector:@selector(tableView)];
-        if (isPrefs && isList) {
-            id parent = controller.parentViewController;
-            if (parent == nil) {
-                if (best == nil) best = controller;
-            } else if ([parent respondsToSelector:rootListSel]) {
-                best = controller;
-            }
-            if (fallback == nil) fallback = controller;
-        }
-
-        if (controller.parentViewController != nil) [queue addObject:controller.parentViewController];
-        for (UIViewController *child in controller.childViewControllers) {
-            if (child != nil) [queue addObject:child];
-        }
-        if (controller.presentedViewController != nil) [queue addObject:controller.presentedViewController];
-        if (controller.navigationController != nil) [queue addObject:controller.navigationController];
-        if (controller.splitViewController != nil) [queue addObject:controller.splitViewController];
-    }
-
-    static BOOL dumped = NO;
-    if (!dumped) {
-        dumped = YES;
-        for (NSString *line in graph) {
-            Vo1dekLog(@"[pane] graph %@", line);
-        }
-    }
-
-    if (best != nil) return best;
-    return fallback;
-}
-
-// Adds the three methods to the concrete Settings list class, capturing the
-// implementations they inherit so every other row still goes through Settings'
-// own code unchanged.
-static void Vo1dekInjectRow(UIViewController *controller) {
-    static NSUInteger attempts = 0;
-    if (Vo1dekInjectedIntoList) return;
-    if (controller == nil) return;
-    if (attempts > 40) return;
-    attempts++;
-
-    UIViewController *list = Vo1dekFindSettingsList(controller);
-    if (list == nil) {
-        if (attempts <= 3) {
-            Vo1dekLog(@"[pane] no Settings list reachable yet (attempt %lu)", (unsigned long)attempts);
-        }
+// Settings does not contain its lists the usual way. PSUIPrefsRootController
+// keeps them in an array it manages itself through -setViewControllers:animated:,
+// so -childViewControllers stays empty and every walk of the containment graph
+// dead ends at a bare UINavigationController. The container is therefore hooked
+// directly and asked for the list it draws the top level screen with.
+static void Vo1dekInstallRow(UIViewController *list) {
+    if (list == nil) return;
+    if (![list respondsToSelector:@selector(tableView)]) {
+        Vo1dekLog(@"[pane] %@ has no table", NSStringFromClass([list class]));
         return;
     }
 
@@ -972,13 +901,96 @@ static void Vo1dekInjectRow(UIViewController *controller) {
 
     UITableView *table = [list valueForKey:@"tableView"];
     [table reloadData];
-    Vo1dekLog(@"[pane] row injected into %@ (parent %@, sections %ld, rows %ld)",
+    Vo1dekLog(@"[pane] row injected into %@ (sections %ld, rows %ld)",
               name,
-              list.parentViewController != nil
-                  ? NSStringFromClass([list.parentViewController class])
-                  : @"nil",
               (long)[table numberOfSections],
               (long)[table numberOfRowsInSection:Vo1dekLastSection(table)]);
+}
+
+#pragma mark - Settings container hook
+
+// A Logos %hook is installed from the constructor, long before Settings has
+// loaded PSUIPrefsRootController, and a hook on a class that is not resident yet
+// is silently dropped. That is why nothing was ever logged. The class name is
+// polled for instead and the two callbacks are replaced directly, so the hook goes
+// in at the moment the container actually exists.
+static IMP Vo1dekOrigRootViewDidLoad = NULL;
+static IMP Vo1dekOrigRootViewDidAppear = NULL;
+
+static void Vo1dekTryInject(id container) {
+    if (Vo1dekInjectedIntoList) return;
+    if (container == nil) return;
+
+    SEL listSel = NSSelectorFromString(@"rootListController");
+    if (![container respondsToSelector:listSel]) {
+        Vo1dekLog(@"[pane] %@ exposes no rootListController",
+                  NSStringFromClass([(UIViewController *)container class]));
+        return;
+    }
+
+    UIViewController *list = ((UIViewController * (*)(id, SEL))objc_msgSend)(container, listSel);
+    if (list == nil) {
+        Vo1dekLog(@"[pane] %@ has no root list yet",
+                  NSStringFromClass([(UIViewController *)container class]));
+        return;
+    }
+    Vo1dekInstallRow(list);
+}
+
+static void Vo1dekRootDidLoadHook(id self, SEL _cmd) {
+    if (Vo1dekOrigRootViewDidLoad != NULL) {
+        ((void (*)(id, SEL))Vo1dekOrigRootViewDidLoad)(self, _cmd);
+    }
+    @try {
+        Vo1dekTryInject(self);
+    } @catch (NSException *exception) {
+        Vo1dekLog(@"[pane] injection failed: %@", exception.reason);
+    }
+}
+
+static void Vo1dekRootDidAppearHook(id self, SEL _cmd, BOOL animated) {
+    if (Vo1dekOrigRootViewDidAppear != NULL) {
+        ((void (*)(id, SEL, BOOL))Vo1dekOrigRootViewDidAppear)(self, _cmd, animated);
+    }
+    @try {
+        Vo1dekTryInject(self);
+    } @catch (NSException *exception) {
+        Vo1dekLog(@"[pane] injection failed: %@", exception.reason);
+    }
+}
+
+static void Vo1dekInstallContainerHook(void) {
+    if (Vo1dekOrigRootViewDidLoad != NULL) return;
+
+    Class cls = NSClassFromString(@"PSUIPrefsRootController");
+    if (cls == Nil) return;
+
+    Method didLoad = class_getInstanceMethod(cls, @selector(viewDidLoad));
+    Method didAppear = class_getInstanceMethod(cls, @selector(viewDidAppear:));
+    if (didLoad == NULL || didAppear == NULL) return;
+
+    // Both are inherited from UIViewController here, so the original
+    // implementations are saved before the class gets its own copy.
+    Vo1dekOrigRootViewDidLoad = method_getImplementation(didLoad);
+    Vo1dekOrigRootViewDidAppear = method_getImplementation(didAppear);
+    class_replaceMethod(cls, @selector(viewDidLoad), (IMP)Vo1dekRootDidLoadHook,
+                        method_getTypeEncoding(didLoad));
+    class_replaceMethod(cls, @selector(viewDidAppear:), (IMP)Vo1dekRootDidAppearHook,
+                        method_getTypeEncoding(didAppear));
+    Vo1dekLog(@"[pane] container hook installed on %@", NSStringFromClass(cls));
+}
+
+static void Vo1dekPollForContainer(void) {
+    for (NSUInteger attempt = 0; attempt < 80; attempt++) {
+        if (Vo1dekOrigRootViewDidLoad != NULL) return;
+        Class cls = NSClassFromString(@"PSUIPrefsRootController");
+        if (cls != Nil) {
+            Vo1dekInstallContainerHook();
+            if (Vo1dekOrigRootViewDidLoad != NULL) return;
+        }
+        [NSThread sleepForTimeInterval:0.25];
+    }
+    Vo1dekLog(@"[pane] PSUIPrefsRootController never became resident");
 }
 
 #pragma mark - probing
@@ -1049,7 +1061,7 @@ static void Vo1dekLogPaneBundles(void) {
     }
 }
 
-#define VO1DEK_PROBE_VERSION 4
+#define VO1DEK_PROBE_VERSION 5
 
 static void Vo1dekRunProbeIfNeeded(void) {
     NSString *existing = [NSString stringWithContentsOfFile:VO1DEK_PROBE
@@ -1117,28 +1129,12 @@ static void Vo1dekStartSettings(void) {
 
 %group Vo1dekListHooks
 
-// Hooking UIViewController rather than a private Settings class: the private
-// classes are pulled in lazily and are reliably absent this early, which used to
-// skip hook installation entirely. UIViewController is always resident, and the
-// class-name check below keeps the hook inert everywhere except the Settings list.
+// The container hook above does the work. This group stays only so the tweak
+// still has a hook section to hang off when Settings loads its classes lazily.
 %hook UIViewController
-
-- (void)viewDidLoad {
-    %orig;
-    @try {
-        Vo1dekInjectRow(self);
-    } @catch (NSException *e) {
-        Vo1dekLog(@"[pane] injection failed: %@", e.reason);
-    }
-}
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    @try {
-        Vo1dekInjectRow(self);
-    } @catch (NSException *e) {
-        Vo1dekLog(@"[pane] injection failed: %@", e.reason);
-    }
 }
 
 %end
@@ -1161,6 +1157,12 @@ static void Vo1dekStartSettings(void) {
         } else if ([host isEqualToString:@"com.apple.Preferences"]) {
             %init(Vo1dekListHooks);
             Vo1dekStartSettings();
+            // Settings loads its own classes long after this constructor has run,
+            // so the container hook goes in from a background thread that waits for
+            // PSUIPrefsRootController to become resident.
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                Vo1dekPollForContainer();
+            });
         } else {
             Vo1dekLog(@"[boot] loaded in %@, no role", host);
         }
